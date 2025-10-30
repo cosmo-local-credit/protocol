@@ -1,12 +1,12 @@
-name: CI
+name: Foundry Test
 
 permissions:
   contents: read
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - "master"
 
 env:
   FOUNDRY_PROFILE: ci

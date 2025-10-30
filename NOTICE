@@ -3,7 +3,11 @@ See LICENSE for details.
 
 This project includes code from the following third-party sources:
 
-1. **Solady** (https://github.com/Vectorized/solady):
+1. **Louis Holbrook** (https://github.com/nolash)
+
+AGPL-3.0 snippets, credited in source wherever imported.
+
+2. **Solady** (https://github.com/Vectorized/solady):
 
 MIT License
 
@@ -27,7 +31,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-2. **Celo (cLabs)** (https://github.com/celo-org/celo-monorepo)
+3. **Celo (cLabs)** (https://github.com/celo-org/celo-monorepo)
 
                                  Apache License
                            Version 2.0, January 2004

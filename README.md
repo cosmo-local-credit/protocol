@@ -1,6 +1,6 @@
 ## sarafu-network-protocol
 
-> Core contracts for The Sarafu Network protocol
+> Core smart contracts related to the Sarafu Network protocol 
 
 Includes smart contracts around:
 
@@ -12,9 +12,9 @@ Includes smart contracts around:
 
 * [Foundry toolchain](https://getfoundry.sh/introduction/overview)
 
-### License
+### License and Attributions
 
-All smart contracts under src, including modifications or additions to Solady and Celo snippets, are licensed under [AGPL-3.0](LICENSE) except as noted below:
+All smart contracts under `src`, including modifications or additions to Louis Holbrook, Solady and Celo snippets, are licensed under [AGPL-3.0](LICENSE) except as noted below:
 
 * Unmodified Solady contracts remain under their original MIT license.
 * Unmodified Celo contracts remain under their original Apache-2.0 license.
