@@ -22,11 +22,7 @@ contract GiftableTokenTest is Test {
     address user1 = makeAddr("user1");
     address user2 = makeAddr("user2");
 
-    event Mint(
-        address indexed minter,
-        address indexed beneficiary,
-        uint256 value
-    );
+    event Mint(address indexed minter, address indexed beneficiary, uint256 value);
     event Burn(address indexed from, uint256 value);
     event Expired(uint256 timestamp);
     event WriterAdded(address indexed writer);

@@ -20,11 +20,7 @@ contract GiftableToken is ERC20, Ownable, Initializable {
     uint8 private _decimals;
     uint256 private _expires;
 
-    event Mint(
-        address indexed minter,
-        address indexed beneficiary,
-        uint256 value
-    );
+    event Mint(address indexed minter, address indexed beneficiary, uint256 value);
     event Burn(address indexed from, uint256 value);
     event Expired(uint256 timestamp);
     event WriterAdded(address indexed writer);
@@ -34,13 +30,10 @@ contract GiftableToken is ERC20, Ownable, Initializable {
         _disableInitializers();
     }
 
-    function initialize(
-        string memory name_,
-        string memory symbol_,
-        uint8 decimals_,
-        address owner,
-        uint256 expiresAt
-    ) external initializer {
+    function initialize(string memory name_, string memory symbol_, uint8 decimals_, address owner, uint256 expiresAt)
+        external
+        initializer
+    {
         _initializeOwner(owner);
 
         _name = name_;
@@ -118,22 +111,13 @@ contract GiftableToken is ERC20, Ownable, Initializable {
         emit Burn(msg.sender, _value);
     }
 
-    function _beforeTokenTransfer(
-        address,
-        address,
-        uint256
-    ) internal virtual override {
+    function _beforeTokenTransfer(address, address, uint256) internal virtual override {
         if (applyExpiry() != 0) revert TokenExpired();
     }
 
     function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
-        return
-            interfaceId == 0x01ffc9a7 ||
-            interfaceId == 0xb61bc941 ||
-            interfaceId == 0x449a52f8 ||
-            interfaceId == 0x9493f8b2 ||
-            interfaceId == 0xabe1f1f5 ||
-            interfaceId == 0xb1110c1b ||
-            interfaceId == 0x841a0e94;
+        return interfaceId == 0x01ffc9a7 || interfaceId == 0xb61bc941 || interfaceId == 0x449a52f8
+            || interfaceId == 0x9493f8b2 || interfaceId == 0xabe1f1f5 || interfaceId == 0xb1110c1b
+            || interfaceId == 0x841a0e94;
     }
 }
