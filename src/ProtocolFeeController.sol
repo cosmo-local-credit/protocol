@@ -6,11 +6,7 @@ import {IProtocolFeeController} from "./interfaces/IProtocolFeeController.sol";
 import "solady/auth/Ownable.sol";
 import "solady/utils/Initializable.sol";
 
-contract ProtocolFeeController is
-    IProtocolFeeController,
-    Ownable,
-    Initializable
-{
+contract ProtocolFeeController is IProtocolFeeController, Ownable, Initializable {
     uint256 private constant PPM = 1_000_000;
 
     uint256 private protocolFee;
@@ -19,10 +15,7 @@ contract ProtocolFeeController is
 
     event ProtocolFeeUpdated(uint256 oldFee, uint256 newFee);
 
-    event ProtocolFeeRecipientUpdated(
-        address indexed oldRecipient,
-        address indexed newRecipient
-    );
+    event ProtocolFeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
 
     event ActiveStateUpdated(bool active);
 
@@ -33,11 +26,7 @@ contract ProtocolFeeController is
         _disableInitializers();
     }
 
-    function initialize(
-        address owner_,
-        uint256 initialFee_,
-        address initialRecipient_
-    ) external initializer {
+    function initialize(address owner_, uint256 initialFee_, address initialRecipient_) external initializer {
         _initializeOwner(owner_);
 
         if (initialFee_ > PPM) revert InvalidFee();
@@ -56,12 +45,7 @@ contract ProtocolFeeController is
         return protocolFee;
     }
 
-    function getProtocolFeeRecipient()
-        external
-        view
-        override
-        returns (address)
-    {
+    function getProtocolFeeRecipient() external view override returns (address) {
         return protocolFeeRecipient;
     }
 

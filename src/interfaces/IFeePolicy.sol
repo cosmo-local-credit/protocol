@@ -3,10 +3,7 @@
 pragma solidity ^0.8.30;
 
 interface IFeePolicy {
-    function getFee(
-        address tokenIn,
-        address tokenOut
-    ) external view returns (uint256);
+    function getFee(address tokenIn, address tokenOut) external view returns (uint256);
 
     function isActive() external view returns (bool);
 }

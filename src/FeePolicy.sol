@@ -19,12 +19,7 @@ contract FeePolicy is IFeePolicy, Ownable, Initializable {
 
     event DefaultFeeUpdated(uint256 oldFee, uint256 newFee);
 
-    event PairFeeUpdated(
-        address indexed tokenIn,
-        address indexed tokenOut,
-        uint256 oldFee,
-        uint256 newFee
-    );
+    event PairFeeUpdated(address indexed tokenIn, address indexed tokenOut, uint256 oldFee, uint256 newFee);
 
     event PairFeeRemoved(address indexed tokenIn, address indexed tokenOut);
 
@@ -32,20 +27,14 @@ contract FeePolicy is IFeePolicy, Ownable, Initializable {
         _disableInitializers();
     }
 
-    function initialize(
-        address owner_,
-        uint256 defaultFee_
-    ) external initializer {
+    function initialize(address owner_, uint256 defaultFee_) external initializer {
         _initializeOwner(owner_);
         if (defaultFee_ > PPM) revert InvalidFee();
         defaultFee = defaultFee_;
         emit DefaultFeeUpdated(0, defaultFee_);
     }
 
-    function getFee(
-        address tokenIn,
-        address tokenOut
-    ) external view override returns (uint256) {
+    function getFee(address tokenIn, address tokenOut) external view override returns (uint256) {
         bytes32 pairKey = keccak256(abi.encodePacked(tokenIn, tokenOut));
         uint256 pairFee = pairFees[pairKey];
 
@@ -69,11 +58,7 @@ contract FeePolicy is IFeePolicy, Ownable, Initializable {
         emit DefaultFeeUpdated(oldFee, newDefaultFee_);
     }
 
-    function setPairFee(
-        address tokenIn,
-        address tokenOut,
-        uint256 fee_
-    ) external onlyOwner {
+    function setPairFee(address tokenIn, address tokenOut, uint256 fee_) external onlyOwner {
         if (tokenIn == address(0) || tokenOut == address(0)) {
             revert InvalidToken();
         }
@@ -90,10 +75,7 @@ contract FeePolicy is IFeePolicy, Ownable, Initializable {
         emit PairFeeUpdated(tokenIn, tokenOut, oldFee, fee_);
     }
 
-    function removePairFee(
-        address tokenIn,
-        address tokenOut
-    ) external onlyOwner {
+    function removePairFee(address tokenIn, address tokenOut) external onlyOwner {
         bytes32 pairKey = keccak256(abi.encodePacked(tokenIn, tokenOut));
 
         if (pairFees[pairKey] != 0) {
@@ -102,11 +84,7 @@ contract FeePolicy is IFeePolicy, Ownable, Initializable {
         }
     }
 
-    function calculateFee(
-        address tokenIn,
-        address tokenOut,
-        uint256 amount
-    ) external view returns (uint256) {
+    function calculateFee(address tokenIn, address tokenOut, uint256 amount) external view returns (uint256) {
         bytes32 pairKey = keccak256(abi.encodePacked(tokenIn, tokenOut));
         uint256 feePpm = pairFees[pairKey];
 
