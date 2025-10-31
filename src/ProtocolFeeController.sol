@@ -42,6 +42,7 @@ contract ProtocolFeeController is IProtocolFeeController, Ownable, Initializable
     }
 
     function getProtocolFee() external view override returns (uint256) {
+        if (!active) return 0;
         return protocolFee;
     }
 
