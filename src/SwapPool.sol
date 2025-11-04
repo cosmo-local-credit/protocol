@@ -307,6 +307,23 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         return _value;
     }
 
+    // Owner can withdraw all liquidity.
+    // Certain use-cases may require this functionality.
+    // It is recommended that the owner be a timelock or multisig or both.
+    function withdrawLiquidity(
+        address token,
+        address to,
+        uint256 amount
+    ) external onlyOwner returns (uint256) {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        if (amount > balance) revert InsufficientBalance();
+
+        bool success = IERC20(token).transfer(to, amount);
+        if (!success) revert TransferFailed();
+
+        return amount;
+    }
+
     function mustAllowedToken(address _token, address _tokenRegistry) private {
         if (_tokenRegistry == address(0)) {
             return;
