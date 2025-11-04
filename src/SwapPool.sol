@@ -239,7 +239,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         if (protocolFeePpm > 0 && protocolRecipient != address(0)) {
             // If totalFee is 0, apply default 1% protocol fee
             if (totalFee == 0) {
-                protocolFee = (quotedValue * DEFAULT_FEE_PPM) / PPM;
+                protocolFee = (DEFAULT_FEE_PPM * protocolFeePpm) / PPM;
             } else {
                 // Protocol fee is a percentage of the total fee
                 protocolFee = (totalFee * protocolFeePpm) / PPM;
