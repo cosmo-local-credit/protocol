@@ -18,10 +18,10 @@ contract LimiterTest is Test {
     address owner = makeAddr("owner");
     address user1 = makeAddr("user1");
     address user2 = makeAddr("user2");
+    address writer = makeAddr("writer");
     address token1 = makeAddr("token1");
     address token2 = makeAddr("token2");
 
-    // Mock contract address for testing setLimitFor
     address mockContract;
 
     event LimitSet(
@@ -29,6 +29,8 @@ contract LimiterTest is Test {
         address indexed holder,
         uint256 value
     );
+    event WriterAdded(address indexed writer);
+    event WriterRemoved(address indexed writer);
 
     function setUp() public {
         implementation = new Limiter();
@@ -36,54 +38,44 @@ contract LimiterTest is Test {
         limiter = Limiter(limiterAddress);
         limiter.initialize(owner);
 
-        // Deploy a mock contract for setLimitFor tests
         mockContract = address(new MockContract());
+
+        vm.startPrank(owner);
+        limiter.addWriter(writer);
+        vm.stopPrank();
     }
 
     function test_initialize() public view {
         assertEq(limiter.owner(), owner);
     }
 
+    function test_addWriter() public {
+        address newWriter = makeAddr("newWriter");
+
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, false);
+        emit WriterAdded(newWriter);
+        limiter.addWriter(newWriter);
+
+        assertTrue(limiter.isWriter(newWriter));
+    }
+
+    function test_deleteWriter() public {
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, false);
+        emit WriterRemoved(writer);
+        limiter.deleteWriter(writer);
+
+        assertFalse(limiter.isWriter(writer));
+    }
+
+    function test_isWriter_owner_is_always_writer() public view {
+        assertTrue(limiter.isWriter(owner));
+    }
+
     function test_initialize_revertIf_already_initialized() public {
         vm.expectRevert(InvalidInitialization.selector);
         limiter.initialize(user1);
-    }
-
-    function test_setLimit() public {
-        uint256 limitValue = 1000e18;
-
-        vm.prank(user1);
-        vm.expectEmit(true, true, false, true);
-        emit LimitSet(token1, user1, limitValue);
-        limiter.setLimit(token1, limitValue);
-
-        assertEq(limiter.limitOf(token1, user1), limitValue);
-    }
-
-    function test_setLimit_multiple_tokens() public {
-        uint256 limit1 = 1000e18;
-        uint256 limit2 = 2000e18;
-
-        vm.startPrank(user1);
-        limiter.setLimit(token1, limit1);
-        limiter.setLimit(token2, limit2);
-        vm.stopPrank();
-
-        assertEq(limiter.limitOf(token1, user1), limit1);
-        assertEq(limiter.limitOf(token2, user1), limit2);
-    }
-
-    function test_setLimit_update_existing() public {
-        uint256 initialLimit = 1000e18;
-        uint256 newLimit = 2000e18;
-
-        vm.startPrank(user1);
-        limiter.setLimit(token1, initialLimit);
-        assertEq(limiter.limitOf(token1, user1), initialLimit);
-
-        limiter.setLimit(token1, newLimit);
-        assertEq(limiter.limitOf(token1, user1), newLimit);
-        vm.stopPrank();
     }
 
     function test_setLimitFor_by_owner() public {
@@ -97,10 +89,10 @@ contract LimiterTest is Test {
         assertEq(limiter.limitOf(token1, mockContract), limitValue);
     }
 
-    function test_setLimitFor_by_holder() public {
+    function test_setLimitFor_by_writer() public {
         uint256 limitValue = 3000e18;
 
-        vm.prank(mockContract);
+        vm.prank(writer);
         vm.expectEmit(true, true, false, true);
         emit LimitSet(token1, mockContract, limitValue);
         limiter.setLimitFor(token1, mockContract, limitValue);
@@ -128,14 +120,14 @@ contract LimiterTest is Test {
         assertEq(limiter.limitOf(token1, user1), 0);
     }
 
-    function testFuzz_setLimit(address token, uint256 limit) public {
-        vm.prank(user1);
-        limiter.setLimit(token, limit);
-        assertEq(limiter.limitOf(token, user1), limit);
+    function test_supportsInterface() public view {
+        assertTrue(limiter.supportsInterface(0x01ffc9a7));
+        assertTrue(limiter.supportsInterface(0x7f5828d0));
+        assertTrue(limiter.supportsInterface(0x23778613));
+        assertFalse(limiter.supportsInterface(0x12345678));
     }
 }
 
-// Mock contract for testing setLimitFor
 contract MockContract {
     // Empty contract with code
 }

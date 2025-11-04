@@ -11,12 +11,22 @@ contract Limiter is ILimiter, Ownable, Initializable {
     error InvalidHolder();
 
     mapping(address => mapping(address => uint256)) private limits;
+    mapping(address => bool) public writers;
 
     event LimitSet(
         address indexed token,
         address indexed holder,
         uint256 value
     );
+    event WriterAdded(address indexed writer);
+    event WriterRemoved(address indexed writer);
+
+    modifier onlyWriter() {
+        if (msg.sender != owner() && !writers[msg.sender]) {
+            revert Unauthorized();
+        }
+        _;
+    }
 
     constructor() {
         _disableInitializers();
@@ -33,21 +43,27 @@ contract Limiter is ILimiter, Ownable, Initializable {
         return limits[token][holder];
     }
 
-    function setLimit(address token, uint256 value) external {
-        limits[token][msg.sender] = value;
-        emit LimitSet(token, msg.sender, value);
+    function addWriter(address writer) external onlyOwner returns (bool) {
+        writers[writer] = true;
+        emit WriterAdded(writer);
+        return true;
+    }
+
+    function isWriter(address writer) external view returns (bool) {
+        return writers[writer] || writer == owner();
+    }
+
+    function deleteWriter(address writer) external onlyOwner returns (bool) {
+        writers[writer] = false;
+        emit WriterRemoved(writer);
+        return true;
     }
 
     function setLimitFor(
         address token,
         address holder,
         uint256 value
-    ) external {
-        // Only owner or the holder themselves can set the limit
-        if (msg.sender != owner() && msg.sender != holder) {
-            revert Unauthorized();
-        }
-
+    ) external onlyWriter {
         // Ensure holder is a contract
         uint256 codeSize;
         assembly {
