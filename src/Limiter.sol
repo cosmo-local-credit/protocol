@@ -66,9 +66,8 @@ contract Limiter is ILimiter, Ownable, Initializable {
 
     // EIP165 support
     function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
-        return
-            interfaceId == 0x01ffc9a7 // ERC165
-                || interfaceId == 0x7f5828d0 // ERC173 (Ownable)
-                || interfaceId == 0x23778613; // TokenLimit
+        return interfaceId == 0x01ffc9a7 // ERC165
+            || interfaceId == 0x7f5828d0 // ERC173 (Ownable)
+            || interfaceId == 0x23778613; // TokenLimit
     }
 }
