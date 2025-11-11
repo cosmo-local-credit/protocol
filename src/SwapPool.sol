@@ -32,9 +32,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     address public quoter;
     address public feeAddress;
     address public feePolicy;
-
-    // Hardcoded protocol fee controller address
-    address private constant PROTOCOL_FEE_CONTROLLER = address(0x0); // TODO: Set the actual address
+    address public protocolFeeController;
 
     string private _name;
     string private _symbol;
@@ -100,7 +98,8 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         address tokenRegistry_,
         address tokenLimiter_,
         address quoter_,
-        bool feesDecoupled_
+        bool feesDecoupled_,
+        address protocolFeeController_
     ) external initializer {
         _initializeOwner(owner);
 
@@ -114,6 +113,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         tokenLimiter = tokenLimiter_;
         quoter = quoter_;
         feesDecoupled = feesDecoupled_;
+        protocolFeeController = protocolFeeController_;
     }
 
     function decimals() public view override returns (uint8) {
@@ -209,31 +209,76 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         return (_value * feePpm) / PPM;
     }
 
+    // Calculate the amount of output tokens received for a given input amount
+    // Returns the net amount after all fees are deducted
+    function getAmountOut(
+        address _outToken,
+        address _inToken,
+        uint256 _amountIn
+    ) public returns (uint256) {
+        uint256 quotedValue = getQuote(_outToken, _inToken, _amountIn);
+        uint256 totalFee = getFee(_inToken, _outToken, quotedValue);
+        uint256 netValue = quotedValue - totalFee;
+
+        return netValue;
+    }
+
+    // Calculate the amount of input tokens required to receive a desired output amount
+    // Returns the input amount needed after accounting for all fees
+    function getAmountIn(
+        address _outToken,
+        address _inToken,
+        uint256 _amountOut
+    ) public view returns (uint256) {
+        uint256 feePpm = 0;
+        if (feePolicy != address(0)) {
+            feePpm = IFeePolicy(feePolicy).getFee(_inToken, _outToken);
+        }
+
+        if (feePpm == 0) {
+            return _amountOut;
+        }
+
+        return (_amountOut * PPM) / (PPM - feePpm);
+    }
+
     function withdraw(
         address _outToken,
         address _inToken,
         uint256 _value
     ) public {
-        // First, deposit the input token
         deposit(_inToken, _value);
 
-        // Get the quote for the output token
         uint256 quotedValue = getQuote(_outToken, _inToken, _value);
 
         // Calculate fee on the quoted output value
         uint256 totalFee = getFee(_inToken, _outToken, quotedValue);
         uint256 netValue = quotedValue - totalFee;
-
-        // Check balance
         uint256 balance = IERC20(_outToken).balanceOf(address(this));
-        if (balance < quotedValue) revert InsufficientBalance();
+
+        // If fees are decoupled, they are not part of available liquidity
+        // So we need to ensure: balance - accumulatedFees >= quotedValue
+        if (feesDecoupled) {
+            uint256 availableLiquidity = balance > fees[_outToken]
+                ? balance - fees[_outToken]
+                : 0;
+            if (availableLiquidity < quotedValue) revert InsufficientBalance();
+        } else {
+            // If fees are not decoupled, accumulated fees are part of liquidity
+            if (balance < quotedValue) revert InsufficientBalance();
+        }
 
         // Calculate protocol fee
         IProtocolFeeController controller = IProtocolFeeController(
-            PROTOCOL_FEE_CONTROLLER
+            protocolFeeController
         );
-        uint256 protocolFeePpm = controller.getProtocolFee();
-        address protocolRecipient = controller.getProtocolFeeRecipient();
+        uint256 protocolFeePpm = 0;
+        address protocolRecipient = address(0);
+
+        if (protocolFeeController != address(0)) {
+            protocolFeePpm = controller.getProtocolFee();
+            protocolRecipient = controller.getProtocolFeeRecipient();
+        }
 
         uint256 protocolFee = 0;
         if (protocolFeePpm > 0 && protocolRecipient != address(0)) {
@@ -259,9 +304,6 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         bool success = IERC20(_outToken).transfer(msg.sender, netValue);
         if (!success) revert TransferFailed();
 
-        // Always account for pool owner fees
-        // When feesDecoupled = true: all fees can be withdrawn
-        // When feesDecoupled = false: fees tracked but must maintain liquidity
         if (poolOwnerFee > 0 && feeAddress != address(0)) {
             fees[_outToken] += poolOwnerFee;
         }
@@ -278,9 +320,17 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
 
     function withdraw(address _outToken) public onlyOwner returns (uint256) {
         uint256 balance = fees[_outToken];
+        if (balance == 0) revert InsufficientFees();
+
         fees[_outToken] = 0;
 
-        return withdraw(_outToken, balance);
+        if (feeAddress == address(0)) revert InvalidFeeAddress();
+
+        bool success = IERC20(_outToken).transfer(feeAddress, balance);
+        if (!success) revert TransferFailed();
+
+        emit Collect(feeAddress, _outToken, balance);
+        return balance;
     }
 
     function withdraw(
@@ -289,14 +339,6 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     ) public onlyOwner returns (uint256) {
         if (feeAddress == address(0)) revert InvalidFeeAddress();
         if (_value > fees[_outToken]) revert InsufficientFees();
-
-        // When feesDecoupled = false, ensure we maintain minimum liquidity
-        // Check actual balance to ensure withdrawal is possible
-        if (!feesDecoupled) {
-            uint256 balance = IERC20(_outToken).balanceOf(address(this));
-            // Ensure we have enough balance and maintain some liquidity
-            if (_value > balance) revert InsufficientBalance();
-        }
 
         fees[_outToken] -= _value;
 

@@ -1,0 +1,7 @@
+{
+    "remappings": [
+        "solady/tokens/=lib/solady/src/tokens/",
+        "solady/auth/=lib/solady/src/auth/",
+        "solady/utils/=lib/solady/src/utils/"
+    ]
+}
