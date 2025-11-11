@@ -9,11 +9,7 @@ import {IERC20Meta} from "./interfaces/IERC20Meta.sol";
 contract DecimalQuoter is IQuoter {
     error TokenCallFailed();
 
-    function valueFor(
-        address outToken,
-        address inToken,
-        uint256 value
-    ) external view override returns (uint256) {
+    function valueFor(address outToken, address inToken, uint256 value) external view override returns (uint256) {
         uint8 outDecimals = IERC20Meta(outToken).decimals();
         uint8 inDecimals = IERC20Meta(inToken).decimals();
 
@@ -32,8 +28,7 @@ contract DecimalQuoter is IQuoter {
 
     // EIP165 support
     function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
-        return
-            interfaceId == 0x01ffc9a7 || // ERC165
-            interfaceId == 0xdbb21d40; // TokenQuote
+        return interfaceId == 0x01ffc9a7 // ERC165
+            || interfaceId == 0xdbb21d40; // TokenQuote
     }
 }

@@ -52,16 +52,8 @@ contract SwapPoolTest is Test {
         uint256 amountOut,
         uint256 fee
     );
-    event Deposit(
-        address indexed initiator,
-        address indexed tokenIn,
-        uint256 amountIn
-    );
-    event Collect(
-        address indexed feeAddress,
-        address tokenOut,
-        uint256 amountOut
-    );
+    event Deposit(address indexed initiator, address indexed tokenIn, uint256 amountIn);
+    event Collect(address indexed feeAddress, address tokenOut, uint256 amountOut);
 
     function setUp() public {
         // Deploy mock contracts
@@ -157,11 +149,7 @@ contract SwapPoolTest is Test {
     }
 
     function test_deposit_revertIf_unauthorized_token() public {
-        MockERC20 unauthorizedToken = new MockERC20(
-            "Unauthorized",
-            "UNAUTH",
-            18
-        );
+        MockERC20 unauthorizedToken = new MockERC20("Unauthorized", "UNAUTH", 18);
         unauthorizedToken.mint(user1, 1000e18);
 
         uint256 amount = 1000e18;
@@ -199,14 +187,7 @@ contract SwapPoolTest is Test {
         uint256 balanceBefore = tokenB.balanceOf(user1);
 
         vm.expectEmit(true, true, false, true);
-        emit Swap(
-            user1,
-            address(tokenA),
-            address(tokenB),
-            amountIn,
-            amountIn,
-            0
-        );
+        emit Swap(user1, address(tokenA), address(tokenB), amountIn, amountIn, 0);
 
         pool.withdraw(address(tokenB), address(tokenA), amountIn);
         vm.stopPrank();
@@ -229,14 +210,7 @@ contract SwapPoolTest is Test {
         uint256 balanceBefore = tokenB.balanceOf(user1);
 
         vm.expectEmit(true, true, false, true);
-        emit Swap(
-            user1,
-            address(tokenA),
-            address(tokenB),
-            amountIn,
-            amountIn,
-            expectedFee
-        );
+        emit Swap(user1, address(tokenA), address(tokenB), amountIn, amountIn, expectedFee);
 
         pool.withdraw(address(tokenB), address(tokenA), amountIn);
         vm.stopPrank();
@@ -299,16 +273,8 @@ contract SwapPoolTest is Test {
         );
 
         // Set limits for the decoupled pool
-        limiter.setLimit(
-            address(tokenA),
-            address(decoupledPool),
-            type(uint256).max
-        );
-        limiter.setLimit(
-            address(tokenB),
-            address(decoupledPool),
-            type(uint256).max
-        );
+        limiter.setLimit(address(tokenA), address(decoupledPool), type(uint256).max);
+        limiter.setLimit(address(tokenB), address(decoupledPool), type(uint256).max);
 
         // Add liquidity
         tokenA.mint(address(decoupledPool), 1000e18);
@@ -362,10 +328,7 @@ contract SwapPoolTest is Test {
         uint256 collected = pool.withdraw(address(tokenB), accumulatedFees);
 
         assertEq(collected, accumulatedFees);
-        assertEq(
-            tokenB.balanceOf(feeAddress),
-            feeBalanceBefore + accumulatedFees
-        );
+        assertEq(tokenB.balanceOf(feeAddress), feeBalanceBefore + accumulatedFees);
         assertEq(pool.fees(address(tokenB)), 0);
     }
 
@@ -430,11 +393,7 @@ contract SwapPoolTest is Test {
         uint256 balanceBefore = tokenA.balanceOf(user1);
 
         vm.prank(owner);
-        uint256 withdrawn = pool.withdrawLiquidity(
-            address(tokenA),
-            user1,
-            amount
-        );
+        uint256 withdrawn = pool.withdrawLiquidity(address(tokenA), user1, amount);
 
         assertEq(withdrawn, amount);
         assertEq(tokenA.balanceOf(user1), balanceBefore + amount);
@@ -460,11 +419,7 @@ contract SwapPoolTest is Test {
         uint256 amountIn = 100e18;
         uint256 expectedOut = 99e18; // 100 - 1% fee
 
-        uint256 amountOut = pool.getAmountOut(
-            address(tokenB),
-            address(tokenA),
-            amountIn
-        );
+        uint256 amountOut = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
 
         assertEq(amountOut, expectedOut);
     }
@@ -478,11 +433,7 @@ contract SwapPoolTest is Test {
         uint256 expectedFee = (quotedValue * 10000) / 1_000_000; // 2e18
         uint256 expectedOut = quotedValue - expectedFee; // 198e18
 
-        uint256 amountOut = pool.getAmountOut(
-            address(tokenB),
-            address(tokenA),
-            amountIn
-        );
+        uint256 amountOut = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
 
         assertEq(amountOut, expectedOut);
     }
@@ -494,11 +445,7 @@ contract SwapPoolTest is Test {
         // To get 99 out, we need: amountIn = 99 * 1_000_000 / (1_000_000 - 10000) = 99 * 1_000_000 / 990000 = 100
         uint256 expectedIn = 100e18;
 
-        uint256 amountIn = pool.getAmountIn(
-            address(tokenB),
-            address(tokenA),
-            desiredOut
-        );
+        uint256 amountIn = pool.getAmountIn(address(tokenB), address(tokenA), desiredOut);
 
         assertEq(amountIn, expectedIn);
     }
@@ -507,11 +454,7 @@ contract SwapPoolTest is Test {
         feePolicy.setFee(address(tokenA), address(tokenB), 0);
 
         uint256 desiredOut = 100e18;
-        uint256 amountIn = pool.getAmountIn(
-            address(tokenB),
-            address(tokenA),
-            desiredOut
-        );
+        uint256 amountIn = pool.getAmountIn(address(tokenB), address(tokenA), desiredOut);
 
         assertEq(amountIn, desiredOut);
     }
@@ -739,11 +682,7 @@ contract SwapPoolTest is Test {
         );
 
         uint256 value = 100e18;
-        uint256 quote = newPool.getQuote(
-            address(tokenB),
-            address(tokenA),
-            value
-        );
+        uint256 quote = newPool.getQuote(address(tokenB), address(tokenA), value);
 
         assertEq(quote, value); // 1:1 when no quoter
     }
@@ -792,10 +731,7 @@ contract MockERC20 is IERC20 {
         return true;
     }
 
-    function allowance(
-        address owner,
-        address spender
-    ) external view returns (uint256) {
+    function allowance(address owner, address spender) external view returns (uint256) {
         return _allowances[owner][spender];
     }
 
@@ -804,11 +740,7 @@ contract MockERC20 is IERC20 {
         return true;
     }
 
-    function transferFrom(
-        address from,
-        address to,
-        uint256 amount
-    ) external returns (bool) {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         _allowances[from][msg.sender] -= amount;
         _balances[from] -= amount;
         _balances[to] += amount;
@@ -828,10 +760,7 @@ contract MockFeePolicy is IFeePolicy {
         fees[tokenIn][tokenOut] = fee;
     }
 
-    function getFee(
-        address tokenIn,
-        address tokenOut
-    ) external view returns (uint256) {
+    function getFee(address tokenIn, address tokenOut) external view returns (uint256) {
         return fees[tokenIn][tokenOut];
     }
 
@@ -847,11 +776,7 @@ contract MockQuoter is IQuoter {
         rates[outToken][inToken] = rate;
     }
 
-    function valueFor(
-        address outToken,
-        address inToken,
-        uint256 value
-    ) external view returns (uint256) {
+    function valueFor(address outToken, address inToken, uint256 value) external view returns (uint256) {
         uint256 rate = rates[outToken][inToken];
         if (rate == 0) {
             return value;
@@ -883,10 +808,7 @@ contract MockLimiter is ILimiter {
         limits[token][holder] = limit;
     }
 
-    function limitOf(
-        address token,
-        address holder
-    ) external view returns (uint256) {
+    function limitOf(address token, address holder) external view returns (uint256) {
         return limits[token][holder];
     }
 }

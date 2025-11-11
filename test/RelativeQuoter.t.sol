@@ -137,223 +137,171 @@ contract RelativeQuoterTest is Test {
     }
 
     function test_valueFor_similarDecimals_noRatesSet() public {
-        /*      
-        Rates not set  
+        /*
+        Rates not set
         1 ABC in
         1 XYZ out
         */
         uint256 input = 1_000_000;
         uint256 expectedOut = 1_000_000;
 
-        uint256 output = quoter.valueFor(
-            address(tokenXYZ),
-            address(tokenABC),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenXYZ), address(tokenABC), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_similarDecimals_1() public {
-        /*      
+        /*
         1 MBAO in
         2 SRF out
         */
         uint256 input = 1_000_000;
         uint256 expectedOut = 2_000_000;
 
-        uint256 output = quoter.valueFor(
-            address(tokenSRF),
-            address(tokenMBAO),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenSRF), address(tokenMBAO), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_similarDecimals_2() public {
-        /*      
+        /*
         1 SRF in
         0.5 MBAO out
         */
         uint256 input = 1_000_000;
         uint256 expectedOut = 500_000;
 
-        uint256 output = quoter.valueFor(
-            address(tokenMBAO),
-            address(tokenSRF),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenMBAO), address(tokenSRF), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_similarDecimals_3() public {
-        /*      
+        /*
         1000 SRF in
         ~ 68.96 USD out
         */
         uint256 input = 1_000_000_000;
         uint256 expectedOut = 68_965_517;
 
-        uint256 output = quoter.valueFor(
-            address(tokenUSD),
-            address(tokenSRF),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenUSD), address(tokenSRF), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_similarDecimals_4() public {
-        /*      
+        /*
         1000 SRF in
         ~ 200,000 TZS out
         */
         uint256 input = 1_000_000_000;
         uint256 expectedOut = 200_000_000_000;
 
-        uint256 output = quoter.valueFor(
-            address(tokenTZS),
-            address(tokenSRF),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenTZS), address(tokenSRF), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_similarDecimals_5() public {
-        /*      
+        /*
         1000 ZAR in
         ~ 52.06 USD out
         */
         uint256 input = 1_000_000_000;
         uint256 expectedOut = 52_068_965;
 
-        uint256 output = quoter.valueFor(
-            address(tokenUSD),
-            address(tokenZAR),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenUSD), address(tokenZAR), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_similarDecimals_6() public {
-        /*      
+        /*
         100 TZS in
         ~ 0.034482 USD out
         */
         uint256 input = 100_000_000;
         uint256 expectedOut = 34_482;
 
-        uint256 output = quoter.valueFor(
-            address(tokenUSD),
-            address(tokenTZS),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenUSD), address(tokenTZS), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_USDCIn_SRFOut() public {
-        /*      
+        /*
         100 USDC in
         1466 SRF out
         */
         uint256 input = 100 * 10 ** 18;
         uint256 expectedOut = 1_466_000_000;
 
-        uint256 output = quoter.valueFor(
-            address(tokenSRF),
-            address(tokenUSDC),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenSRF), address(tokenUSDC), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_SRFIn_USDCOut() public {
-        /*      
+        /*
         100 SRF in
         ~ 6.82 USDC out
         */
         uint256 input = 100_000_000;
         uint256 expectedOut = 6_821_282_401_091_405_184;
 
-        uint256 output = quoter.valueFor(
-            address(tokenUSDC),
-            address(tokenSRF),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenUSDC), address(tokenSRF), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_differentDecimals_MBAOtoUSDC() public {
-        /*      
+        /*
         50 MBAO (6 decimals) in
         ~ 6.82 USDC (18 decimals) out
         */
         uint256 input = 50_000_000; // 50 MBAO with 6 decimals
         uint256 expectedOut = 6_821_282_401_091_405_184; // ~6.82 USDC with 18 decimals
 
-        uint256 output = quoter.valueFor(
-            address(tokenUSDC),
-            address(tokenMBAO),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenUSDC), address(tokenMBAO), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_differentDecimals_USDCtoMBAO() public {
-        /*      
+        /*
         100 USDC (18 decimals) in
         733 MBAO (6 decimals) out
         */
         uint256 input = 100 * 10 ** 18; // 100 USDC
         uint256 expectedOut = 733_000_000; // 733 MBAO
 
-        uint256 output = quoter.valueFor(
-            address(tokenMBAO),
-            address(tokenUSDC),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenMBAO), address(tokenUSDC), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_largeAmounts() public {
-        /*      
+        /*
         1,000,000 SRF in
         ~ 68,965 USD out
         */
         uint256 input = 1_000_000_000_000; // 1M SRF
         uint256 expectedOut = 68_965_517_241; // ~68,965 USD
 
-        uint256 output = quoter.valueFor(
-            address(tokenUSD),
-            address(tokenSRF),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenUSD), address(tokenSRF), input);
 
         assertEq(output, expectedOut);
     }
 
     function test_valueFor_smallAmounts() public {
-        /*      
+        /*
         0.01 TZS in
         ~ 0.000003 USD out (due to rounding with small amounts)
         */
         uint256 input = 10_000; // 0.01 TZS
         uint256 expectedOut = 3; // ~0.000003 USD (rounded down due to integer division)
 
-        uint256 output = quoter.valueFor(
-            address(tokenUSD),
-            address(tokenTZS),
-            input
-        );
+        uint256 output = quoter.valueFor(address(tokenUSD), address(tokenTZS), input);
 
         assertEq(output, expectedOut);
     }

@@ -24,11 +24,7 @@ contract LimiterTest is Test {
 
     address mockContract;
 
-    event LimitSet(
-        address indexed token,
-        address indexed holder,
-        uint256 value
-    );
+    event LimitSet(address indexed token, address indexed holder, uint256 value);
     event WriterAdded(address indexed writer);
     event WriterRemoved(address indexed writer);
 
@@ -130,4 +126,5 @@ contract LimiterTest is Test {
 
 contract MockContract {
     // Empty contract with code
-}
+
+    }

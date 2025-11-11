@@ -4,9 +4,5 @@
 pragma solidity ^0.8.30;
 
 interface IQuoter {
-    function valueFor(
-        address outToken,
-        address inToken,
-        uint256 value
-    ) external returns (uint256);
+    function valueFor(address outToken, address inToken, uint256 value) external returns (uint256);
 }

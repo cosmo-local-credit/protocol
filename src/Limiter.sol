@@ -13,11 +13,7 @@ contract Limiter is ILimiter, Ownable, Initializable {
     mapping(address => mapping(address => uint256)) private limits;
     mapping(address => bool) public writers;
 
-    event LimitSet(
-        address indexed token,
-        address indexed holder,
-        uint256 value
-    );
+    event LimitSet(address indexed token, address indexed holder, uint256 value);
     event WriterAdded(address indexed writer);
     event WriterRemoved(address indexed writer);
 
@@ -36,10 +32,7 @@ contract Limiter is ILimiter, Ownable, Initializable {
         _initializeOwner(owner_);
     }
 
-    function limitOf(
-        address token,
-        address holder
-    ) external view override returns (uint256) {
+    function limitOf(address token, address holder) external view override returns (uint256) {
         return limits[token][holder];
     }
 
@@ -59,11 +52,7 @@ contract Limiter is ILimiter, Ownable, Initializable {
         return true;
     }
 
-    function setLimitFor(
-        address token,
-        address holder,
-        uint256 value
-    ) external onlyWriter {
+    function setLimitFor(address token, address holder, uint256 value) external onlyWriter {
         // Ensure holder is a contract
         uint256 codeSize;
         assembly {
@@ -78,8 +67,8 @@ contract Limiter is ILimiter, Ownable, Initializable {
     // EIP165 support
     function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
         return
-            interfaceId == 0x01ffc9a7 || // ERC165
-            interfaceId == 0x7f5828d0 || // ERC173 (Ownable)
-            interfaceId == 0x23778613; // TokenLimit
+            interfaceId == 0x01ffc9a7 // ERC165
+                || interfaceId == 0x7f5828d0 // ERC173 (Ownable)
+                || interfaceId == 0x23778613; // TokenLimit
     }
 }

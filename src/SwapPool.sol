@@ -71,18 +71,10 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
 
     // Emitted only after an explicit liquidity donation
     // Users can implictly donate via a normal send
-    event Deposit(
-        address indexed initiator,
-        address indexed tokenIn,
-        uint256 amountIn
-    );
+    event Deposit(address indexed initiator, address indexed tokenIn, uint256 amountIn);
 
     // Emitted when collecting fees to the set feeAddress
-    event Collect(
-        address indexed feeAddress,
-        address tokenOut,
-        uint256 amountOut
-    );
+    event Collect(address indexed feeAddress, address tokenOut, uint256 amountOut);
 
     constructor() {
         _disableInitializers();
@@ -176,19 +168,11 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         mustAllowedToken(_token, tokenRegistry);
         mustWithinLimit(_token, _value);
 
-        bool success = IERC20(_token).transferFrom(
-            msg.sender,
-            address(this),
-            _value
-        );
+        bool success = IERC20(_token).transferFrom(msg.sender, address(this), _value);
         if (!success) revert TransferFailed();
     }
 
-    function getQuote(
-        address _outToken,
-        address _inToken,
-        uint256 _value
-    ) public returns (uint256) {
+    function getQuote(address _outToken, address _inToken, uint256 _value) public returns (uint256) {
         if (quoter == address(0x0)) {
             return _value;
         }
@@ -196,11 +180,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         return IQuoter(quoter).valueFor(_outToken, _inToken, _value);
     }
 
-    function getFee(
-        address _inToken,
-        address _outToken,
-        uint256 _value
-    ) public view returns (uint256) {
+    function getFee(address _inToken, address _outToken, uint256 _value) public view returns (uint256) {
         if (feePolicy == address(0)) {
             return 0;
         }
@@ -211,11 +191,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
 
     // Calculate the amount of output tokens received for a given input amount
     // Returns the net amount after all fees are deducted
-    function getAmountOut(
-        address _outToken,
-        address _inToken,
-        uint256 _amountIn
-    ) public returns (uint256) {
+    function getAmountOut(address _outToken, address _inToken, uint256 _amountIn) public returns (uint256) {
         uint256 quotedValue = getQuote(_outToken, _inToken, _amountIn);
         uint256 totalFee = getFee(_inToken, _outToken, quotedValue);
         uint256 netValue = quotedValue - totalFee;
@@ -225,11 +201,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
 
     // Calculate the amount of input tokens required to receive a desired output amount
     // Returns the input amount needed after accounting for all fees
-    function getAmountIn(
-        address _outToken,
-        address _inToken,
-        uint256 _amountOut
-    ) public view returns (uint256) {
+    function getAmountIn(address _outToken, address _inToken, uint256 _amountOut) public view returns (uint256) {
         uint256 feePpm = 0;
         if (feePolicy != address(0)) {
             feePpm = IFeePolicy(feePolicy).getFee(_inToken, _outToken);
@@ -242,11 +214,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         return (_amountOut * PPM) / (PPM - feePpm);
     }
 
-    function withdraw(
-        address _outToken,
-        address _inToken,
-        uint256 _value
-    ) public {
+    function withdraw(address _outToken, address _inToken, uint256 _value) public {
         deposit(_inToken, _value);
 
         uint256 quotedValue = getQuote(_outToken, _inToken, _value);
@@ -259,9 +227,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         // If fees are decoupled, they are not part of available liquidity
         // So we need to ensure: balance - accumulatedFees >= quotedValue
         if (feesDecoupled) {
-            uint256 availableLiquidity = balance > fees[_outToken]
-                ? balance - fees[_outToken]
-                : 0;
+            uint256 availableLiquidity = balance > fees[_outToken] ? balance - fees[_outToken] : 0;
             if (availableLiquidity < quotedValue) revert InsufficientBalance();
         } else {
             // If fees are not decoupled, accumulated fees are part of liquidity
@@ -269,9 +235,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         }
 
         // Calculate protocol fee
-        IProtocolFeeController controller = IProtocolFeeController(
-            protocolFeeController
-        );
+        IProtocolFeeController controller = IProtocolFeeController(protocolFeeController);
         uint256 protocolFeePpm = 0;
         address protocolRecipient = address(0);
 
@@ -291,10 +255,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
             }
 
             // Transfer protocol fee in real-time
-            bool protocolSuccess = IERC20(_outToken).transfer(
-                protocolRecipient,
-                protocolFee
-            );
+            bool protocolSuccess = IERC20(_outToken).transfer(protocolRecipient, protocolFee);
             if (!protocolSuccess) revert TransferFailed();
         }
 
@@ -308,14 +269,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
             fees[_outToken] += poolOwnerFee;
         }
 
-        emit Swap(
-            msg.sender,
-            _inToken,
-            _outToken,
-            _value,
-            quotedValue,
-            totalFee
-        );
+        emit Swap(msg.sender, _inToken, _outToken, _value, quotedValue, totalFee);
     }
 
     function withdraw(address _outToken) public onlyOwner returns (uint256) {
@@ -333,10 +287,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         return balance;
     }
 
-    function withdraw(
-        address _outToken,
-        uint256 _value
-    ) public onlyOwner returns (uint256) {
+    function withdraw(address _outToken, uint256 _value) public onlyOwner returns (uint256) {
         if (feeAddress == address(0)) revert InvalidFeeAddress();
         if (_value > fees[_outToken]) revert InsufficientFees();
 
@@ -352,11 +303,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     // Owner can withdraw all liquidity.
     // Certain use-cases may require this functionality.
     // It is recommended that the owner be a timelock or multisig or both.
-    function withdrawLiquidity(
-        address token,
-        address to,
-        uint256 amount
-    ) external onlyOwner returns (uint256) {
+    function withdrawLiquidity(address token, address to, uint256 amount) external onlyOwner returns (uint256) {
         uint256 balance = IERC20(token).balanceOf(address(this));
         if (amount > balance) revert InsufficientBalance();
 
@@ -371,9 +318,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
             return;
         }
 
-        (bool r, bytes memory v) = _tokenRegistry.call(
-            abi.encodeWithSignature("have(address)", _token)
-        );
+        (bool r, bytes memory v) = _tokenRegistry.call(abi.encodeWithSignature("have(address)", _token));
         if (!r) revert RegistryCallFailed();
         bool isAllowed = abi.decode(v, (bool));
         if (!isAllowed) revert UnauthorizedToken();

@@ -25,81 +25,49 @@ contract DecimalQuoterTest is Test {
 
     function test_valueFor_same_decimals() public view {
         uint256 value = 1000e6;
-        uint256 result = quoter.valueFor(
-            address(token6Decimals),
-            address(anotherToken6Decimals),
-            value
-        );
+        uint256 result = quoter.valueFor(address(token6Decimals), address(anotherToken6Decimals), value);
         assertEq(result, value);
     }
 
     function test_valueFor_inToken_higher_decimals() public view {
         uint256 value = 1000e18;
-        uint256 result = quoter.valueFor(
-            address(token6Decimals),
-            address(token18Decimals),
-            value
-        );
+        uint256 result = quoter.valueFor(address(token6Decimals), address(token18Decimals), value);
         assertEq(result, 1000e6);
     }
 
     function test_valueFor_outToken_higher_decimals() public view {
         uint256 value = 1000e6;
-        uint256 result = quoter.valueFor(
-            address(token18Decimals),
-            address(token6Decimals),
-            value
-        );
+        uint256 result = quoter.valueFor(address(token18Decimals), address(token6Decimals), value);
         assertEq(result, 1000e18);
     }
 
     function test_valueFor_8_to_6_decimals() public view {
         uint256 value = 1000e8;
-        uint256 result = quoter.valueFor(
-            address(token6Decimals),
-            address(token8Decimals),
-            value
-        );
+        uint256 result = quoter.valueFor(address(token6Decimals), address(token8Decimals), value);
         assertEq(result, 1000e6);
     }
 
     function test_valueFor_6_to_8_decimals() public view {
         uint256 value = 1000e6;
-        uint256 result = quoter.valueFor(
-            address(token8Decimals),
-            address(token6Decimals),
-            value
-        );
+        uint256 result = quoter.valueFor(address(token8Decimals), address(token6Decimals), value);
         assertEq(result, 1000e8);
     }
 
     function test_valueFor_precision_loss() public view {
         uint256 value = 123;
-        uint256 result = quoter.valueFor(
-            address(token6Decimals),
-            address(token18Decimals),
-            value
-        );
+        uint256 result = quoter.valueFor(address(token6Decimals), address(token18Decimals), value);
         assertEq(result, 0);
     }
 
     function test_valueFor_large_numbers() public view {
         uint256 value = type(uint128).max;
-        uint256 result = quoter.valueFor(
-            address(token6Decimals),
-            address(token18Decimals),
-            value
-        );
+        uint256 result = quoter.valueFor(address(token6Decimals), address(token18Decimals), value);
         assertEq(result, value / 1e12);
     }
 
     function testFuzz_valueFor_same_decimals(uint256 value) public view {
         vm.assume(value < type(uint256).max / 1e18);
-        uint256 result = quoter.valueFor(
-            address(token6Decimals),
-            address(anotherToken6Decimals),
-            value
-        );
+        uint256 result = quoter.valueFor(address(token6Decimals), address(anotherToken6Decimals), value);
         assertEq(result, value);
     }
 
@@ -107,17 +75,9 @@ contract DecimalQuoterTest is Test {
         vm.assume(value < type(uint128).max);
         vm.assume(value % 1e12 == 0);
 
-        uint256 upConverted = quoter.valueFor(
-            address(token18Decimals),
-            address(token6Decimals),
-            value
-        );
+        uint256 upConverted = quoter.valueFor(address(token18Decimals), address(token6Decimals), value);
 
-        uint256 downConverted = quoter.valueFor(
-            address(token6Decimals),
-            address(token18Decimals),
-            upConverted
-        );
+        uint256 downConverted = quoter.valueFor(address(token6Decimals), address(token18Decimals), upConverted);
 
         assertEq(downConverted, value);
     }

@@ -23,21 +23,14 @@ contract RelativeQuoter is IQuoter, Ownable, Initializable {
         _initializeOwner(owner);
     }
 
-    function setPriceIndexValue(
-        address _tokenAddress,
-        uint256 _exchangeRate
-    ) public onlyOwner returns (uint256) {
+    function setPriceIndexValue(address _tokenAddress, uint256 _exchangeRate) public onlyOwner returns (uint256) {
         priceIndex[_tokenAddress] = _exchangeRate;
         emit PriceIndexUpdated(_tokenAddress, _exchangeRate);
         return _exchangeRate;
     }
 
     // Implements IQuoter
-    function valueFor(
-        address _outToken,
-        address _inToken,
-        uint256 _value
-    ) public returns (uint256) {
+    function valueFor(address _outToken, address _inToken, uint256 _value) public returns (uint256) {
         uint8 dout;
         uint8 din;
         bool r;
@@ -74,11 +67,11 @@ contract RelativeQuoter is IQuoter, Ownable, Initializable {
         }
     }
 
-    function determineOutput(
-        uint256 inputValue,
-        uint256 inExchangeRate,
-        uint256 outExchangeRate
-    ) internal pure returns (uint256) {
+    function determineOutput(uint256 inputValue, uint256 inExchangeRate, uint256 outExchangeRate)
+        internal
+        pure
+        returns (uint256)
+    {
         return (inputValue * inExchangeRate) / outExchangeRate;
     }
 

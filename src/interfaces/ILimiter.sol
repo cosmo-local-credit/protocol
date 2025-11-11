@@ -4,8 +4,5 @@
 pragma solidity ^0.8.30;
 
 interface ILimiter {
-    function limitOf(
-        address token,
-        address holder
-    ) external view returns (uint256);
+    function limitOf(address token, address holder) external view returns (uint256);
 }
