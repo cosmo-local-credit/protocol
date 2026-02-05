@@ -1,6 +1,6 @@
-## sarafu-network-protocol
+## clc-protocol
 
-> Core smart contracts related to the Sarafu Network protocol 
+> Core smart contracts related to the CLC protocol 
 
 Includes smart contracts around:
 
