@@ -27,9 +27,10 @@ All contracts use the **ERC1967 proxy pattern**: an implementation contract is d
   - [13. Change Proxy Admin](#13-change-proxy-admin)
   - [14. Query Proxy Admin](#14-query-proxy-admin)
 - [Contract Reference](#contract-reference)
-- [Splitter](#splitter)
 - [Gas Limits](#gas-limits)
 - [Error Handling](#error-handling)
+
+For detailed contract specifications, see [SPEC.md](../../docs/SPEC.md).
 
 ## Prerequisites
 
@@ -825,29 +826,6 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | `PercentAllocations` | `[]uint32` | Allocations in PPM (sum = 1_000_000) |
 
 ---
-
-## Splitter
-
-Each Splitter is its own ERC1967 proxy instance (one address per split). It can receive ETH and hold ERC20 balances. Funds remain in the Splitter balance until someone calls `distributeETH` or `distributeERC20`.
-
-### Spec
-
-- Stored on-chain: only `bytes32 splitHash`
-- `splitHash = keccak256(abi.encodePacked(accounts, percentAllocations))`
-- `initialize(owner, accounts, percentAllocations)` sets owner and stores `splitHash`
-- `updateSplit(accounts, percentAllocations)` is `onlyOwner` and updates `splitHash`
-- `distributeETH(accounts, percentAllocations)` validates args and splits the full ETH balance; remainder goes to last recipient
-- `distributeERC20(token, accounts, percentAllocations)` validates args and splits the full ERC20 balance; remainder goes to last recipient
-
-Validation rules:
-
-- At least 2 recipients
-- `accounts.length == percentAllocations.length`
-- All allocations are non-zero
-- No duplicate accounts
-- Allocations sum to `1_000_000` (PPM)
-
-See the Splitter deployment example above in the `InitArgs Fields` section.
 
 ## Gas Limits
 
