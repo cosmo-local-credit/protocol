@@ -93,6 +93,7 @@ func (d *Deployer) DeployImplementation(ctx context.Context, bytecode []byte, ga
 
 	contractAddr := crypto.CreateAddress(d.address, nonce)
 
+	//  EIP-1559 only
 	tx := types.NewTx(&types.DynamicFeeTx{
 		Nonce:     nonce,
 		GasFeeCap: d.gasFeeCap,
