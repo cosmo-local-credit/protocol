@@ -20,7 +20,7 @@ See [publish/docs/PUBLISH.md](publish/docs/PUBLISH.md) for complete API referenc
 
 ### License and Attributions
 
-All smart contracts under `src`, including modifications or additions to Louis Holbrook and Solady snippets, are licensed under [AGPL-3.0](LICENSE) except as noted below:
+All smart contracts under `src`, including modifications or additions to Louis Holbrook, 0xSplits and Solady snippets, are licensed under [AGPL-3.0](LICENSE) except as noted below:
 
 * Unmodified Solady contracts remain under their original MIT license.
 

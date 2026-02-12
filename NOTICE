@@ -7,6 +7,10 @@ This project includes code from the following third-party sources:
 
 AGPL-3.0 snippets, credited in source wherever imported.
 
+2. **0xSplits** (https://github.com/0xSplits/)
+
+AGPL-3.0 snippets, credited in source wherever imported.
+
 2. **Solady** (https://github.com/Vectorized/solady):
 
 MIT License
