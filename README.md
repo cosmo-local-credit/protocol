@@ -16,8 +16,8 @@ Includes smart contracts around:
 
 Go library for programmatic deployment and management of protocol contracts using the ERC1967 proxy pattern. Handles implementation deployment, proxy creation, upgrades, and deterministic deployments.
 
-* See [docs/PUBLISH](publish/docs/PUBLISH.md) for complete API reference, usage scenarios, and examples.
-* See [docs/SPEC](publish/docs/SPEC.md) for individual smart contract spec.
+* See [docs/PUBLISH](docs/PUBLISH.md) for complete API reference, usage scenarios, and examples.
+* See [docs/SPEC](docs/SPEC.md) for individual smart contract spec.
 
 ### License and Attributions
 
