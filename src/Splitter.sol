@@ -15,7 +15,7 @@ contract Splitter is ISplitter, Ownable, Initializable {
     error TooFewAccounts();
     error AccountsAndAllocationsMismatch();
     error InvalidAllocationsSum();
-    error AccountsOutOfOrder();
+    error DuplicateAccount();
     error AllocationMustBePositive();
     error InvalidHash();
 
@@ -92,14 +92,14 @@ contract Splitter is ISplitter, Ownable, Initializable {
 
         uint32 sum;
         unchecked {
-            uint256 last = accounts.length - 1;
             for (uint256 i; i < accounts.length; ++i) {
                 uint32 alloc = percentAllocations[i];
                 if (alloc == 0) revert AllocationMustBePositive();
                 sum += alloc;
 
-                if (i != last && accounts[i] >= accounts[i + 1]) {
-                    revert AccountsOutOfOrder();
+                // Check for duplicates
+                for (uint256 j = i + 1; j < accounts.length; ++j) {
+                    if (accounts[i] == accounts[j]) revert DuplicateAccount();
                 }
             }
         }

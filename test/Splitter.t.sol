@@ -223,17 +223,167 @@ contract SplitterTest is Test {
         splitter.distributeETH(accounts, allocs);
     }
 
-    function test_distributeETH_revertIf_outOfOrder() public {
+    function test_distributeETH_revertIf_duplicateAccounts() public {
         address[] memory accounts = new address[](2);
-        accounts[0] = r2;
-        accounts[1] = r1;
+        accounts[0] = r1;
+        accounts[1] = r1; // Duplicate account
         uint32[] memory allocs = new uint32[](2);
         allocs[0] = 600_000;
         allocs[1] = 400_000;
 
         vm.deal(address(splitter), 1 ether);
-        vm.expectRevert(Splitter.AccountsOutOfOrder.selector);
+        vm.expectRevert(Splitter.DuplicateAccount.selector);
         splitter.distributeETH(accounts, allocs);
+    }
+
+    function test_initialize_revertIf_duplicateAccounts() public {
+        Splitter newSplitter = Splitter(payable(LibClone.clone(address(implementation))));
+        
+        address[] memory accounts = new address[](3);
+        accounts[0] = r1;
+        accounts[1] = r2;
+        accounts[2] = r1; // Duplicate of accounts[0]
+        uint32[] memory allocs = new uint32[](3);
+        allocs[0] = 400_000;
+        allocs[1] = 300_000;
+        allocs[2] = 300_000;
+
+        vm.expectRevert(Splitter.DuplicateAccount.selector);
+        newSplitter.initialize(owner, accounts, allocs);
+    }
+
+    function test_updateSplit_revertIf_duplicateAccounts() public {
+        address[] memory accounts = new address[](3);
+        accounts[0] = r1;
+        accounts[1] = r3;
+        accounts[2] = r3; // Duplicate of accounts[1]
+        uint32[] memory allocs = new uint32[](3);
+        allocs[0] = 500_000;
+        allocs[1] = 250_000;
+        allocs[2] = 250_000;
+
+        vm.prank(owner);
+        vm.expectRevert(Splitter.DuplicateAccount.selector);
+        splitter.updateSplit(accounts, allocs);
+    }
+
+    function test_distributeETH_with10Recipients() public {
+        // Create 10 recipients
+        address[] memory accounts = new address[](10);
+        uint32[] memory allocs = new uint32[](10);
+        
+        for (uint256 i = 0; i < 10; i++) {
+            accounts[i] = address(uint160(0x2000 + i));
+            allocs[i] = 100_000; // 10% each
+        }
+
+        vm.prank(owner);
+        splitter.updateSplit(accounts, allocs);
+
+        // Send 10 ETH to splitter
+        vm.deal(address(this), 20 ether);
+        (bool ok,) = address(splitter).call{value: 10 ether}("");
+        assertTrue(ok);
+
+        // Record balances before
+        uint256[] memory balancesBefore = new uint256[](10);
+        for (uint256 i = 0; i < 10; i++) {
+            balancesBefore[i] = accounts[i].balance;
+        }
+
+        // Distribute
+        splitter.distributeETH(accounts, allocs);
+
+        // Verify each recipient got 1 ETH (10%)
+        uint256 totalDistributed = 0;
+        for (uint256 i = 0; i < 10; i++) {
+            uint256 received = accounts[i].balance - balancesBefore[i];
+            assertEq(received, 1 ether, "Each recipient should receive 1 ETH");
+            totalDistributed += received;
+        }
+
+        assertEq(totalDistributed, 10 ether, "Total distributed should be 10 ETH");
+        assertEq(address(splitter).balance, 0, "Splitter balance should be 0");
+    }
+
+    function test_distributeERC20_with10Recipients() public {
+        // Create 10 recipients
+        address[] memory accounts = new address[](10);
+        uint32[] memory allocs = new uint32[](10);
+        
+        for (uint256 i = 0; i < 10; i++) {
+            accounts[i] = address(uint160(0x3000 + i));
+            allocs[i] = 100_000; // 10% each
+        }
+
+        vm.prank(owner);
+        splitter.updateSplit(accounts, allocs);
+
+        // Mint tokens to splitter
+        uint256 totalAmount = 1_000_000_000; // 1 billion tokens
+        token.mint(address(splitter), totalAmount);
+
+        // Record balances before
+        uint256[] memory balancesBefore = new uint256[](10);
+        for (uint256 i = 0; i < 10; i++) {
+            balancesBefore[i] = token.balanceOf(accounts[i]);
+        }
+
+        // Distribute
+        splitter.distributeERC20(address(token), accounts, allocs);
+
+        // Verify each recipient got 10%
+        uint256 totalDistributed = 0;
+        for (uint256 i = 0; i < 10; i++) {
+            uint256 received = token.balanceOf(accounts[i]) - balancesBefore[i];
+            assertEq(received, 100_000_000, "Each recipient should receive 100M tokens");
+            totalDistributed += received;
+        }
+
+        assertEq(totalDistributed, totalAmount, "Total distributed should equal total amount");
+        assertEq(token.balanceOf(address(splitter)), 0, "Splitter balance should be 0");
+    }
+
+    function test_distributeETH_with10Recipients_unequalSplits() public {
+        // Create 10 recipients with different allocations
+        address[] memory accounts = new address[](10);
+        uint32[] memory allocs = new uint32[](10);
+        
+        uint32[10] memory customAllocs = [
+            uint32(200_000), // 20%
+            150_000,         // 15%
+            120_000,         // 12%
+            110_000,         // 11%
+            100_000,         // 10%
+            90_000,          // 9%
+            80_000,          // 8%
+            70_000,          // 7%
+            50_000,          // 5%
+            30_000           // 3%
+        ];
+        
+        for (uint256 i = 0; i < 10; i++) {
+            accounts[i] = address(uint160(0x4000 + i));
+            allocs[i] = customAllocs[i];
+        }
+
+        vm.prank(owner);
+        splitter.updateSplit(accounts, allocs);
+
+        // Send 100 ETH to splitter for easier math
+        vm.deal(address(this), 200 ether);
+        (bool ok,) = address(splitter).call{value: 100 ether}("");
+        assertTrue(ok);
+
+        // Distribute
+        splitter.distributeETH(accounts, allocs);
+
+        // Verify allocations
+        assertEq(accounts[0].balance, 20 ether, "First recipient should get 20%");
+        assertEq(accounts[1].balance, 15 ether, "Second recipient should get 15%");
+        assertEq(accounts[2].balance, 12 ether, "Third recipient should get 12%");
+        assertEq(accounts[9].balance, 3 ether, "Last recipient should get 3%");
+        assertEq(address(splitter).balance, 0, "Splitter should be empty");
     }
 }
 
