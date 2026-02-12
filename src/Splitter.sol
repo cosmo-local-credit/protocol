@@ -27,11 +27,10 @@ contract Splitter is ISplitter, Ownable, Initializable {
 
     receive() external payable {}
 
-    function initialize(
-        address owner,
-        address[] calldata accounts,
-        uint32[] calldata percentAllocations
-    ) external initializer {
+    function initialize(address owner, address[] calldata accounts, uint32[] calldata percentAllocations)
+        external
+        initializer
+    {
         _initializeOwner(owner);
         _validateSplit(accounts, percentAllocations);
         _splitHash = _hashSplit(accounts, percentAllocations);
@@ -52,11 +51,9 @@ contract Splitter is ISplitter, Ownable, Initializable {
         _distributeETH(grossAmount, accounts, percentAllocations);
     }
 
-    function distributeERC20(
-        address token,
-        address[] calldata accounts,
-        uint32[] calldata percentAllocations
-    ) external {
+    function distributeERC20(address token, address[] calldata accounts, uint32[] calldata percentAllocations)
+        external
+    {
         _validateSplit(accounts, percentAllocations);
         _validateHash(accounts, percentAllocations);
 
@@ -74,11 +71,7 @@ contract Splitter is ISplitter, Ownable, Initializable {
         return interfaceId == 0x01ffc9a7 || interfaceId == type(ISplitter).interfaceId;
     }
 
-    function _hashSplit(address[] memory accounts, uint32[] memory percentAllocations)
-        internal
-        pure
-        returns (bytes32)
-    {
+    function _hashSplit(address[] memory accounts, uint32[] memory percentAllocations) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(accounts, percentAllocations));
     }
 

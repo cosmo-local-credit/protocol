@@ -238,7 +238,7 @@ contract SplitterTest is Test {
 
     function test_initialize_revertIf_duplicateAccounts() public {
         Splitter newSplitter = Splitter(payable(LibClone.clone(address(implementation))));
-        
+
         address[] memory accounts = new address[](3);
         accounts[0] = r1;
         accounts[1] = r2;
@@ -271,7 +271,7 @@ contract SplitterTest is Test {
         // Create 10 recipients
         address[] memory accounts = new address[](10);
         uint32[] memory allocs = new uint32[](10);
-        
+
         for (uint256 i = 0; i < 10; i++) {
             accounts[i] = address(uint160(0x2000 + i));
             allocs[i] = 100_000; // 10% each
@@ -310,7 +310,7 @@ contract SplitterTest is Test {
         // Create 10 recipients
         address[] memory accounts = new address[](10);
         uint32[] memory allocs = new uint32[](10);
-        
+
         for (uint256 i = 0; i < 10; i++) {
             accounts[i] = address(uint160(0x3000 + i));
             allocs[i] = 100_000; // 10% each
@@ -348,20 +348,20 @@ contract SplitterTest is Test {
         // Create 10 recipients with different allocations
         address[] memory accounts = new address[](10);
         uint32[] memory allocs = new uint32[](10);
-        
+
         uint32[10] memory customAllocs = [
             uint32(200_000), // 20%
-            150_000,         // 15%
-            120_000,         // 12%
-            110_000,         // 11%
-            100_000,         // 10%
-            90_000,          // 9%
-            80_000,          // 8%
-            70_000,          // 7%
-            50_000,          // 5%
-            30_000           // 3%
+            150_000, // 15%
+            120_000, // 12%
+            110_000, // 11%
+            100_000, // 10%
+            90_000, // 9%
+            80_000, // 8%
+            70_000, // 7%
+            50_000, // 5%
+            30_000 // 3%
         ];
-        
+
         for (uint256 i = 0; i < 10; i++) {
             accounts[i] = address(uint160(0x4000 + i));
             allocs[i] = customAllocs[i];
