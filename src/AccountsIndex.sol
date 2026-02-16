@@ -128,7 +128,7 @@ contract AccountsIndex is Ownable, Initializable {
     }
 
     function supportsInterface(bytes4 _sum) external pure returns (bool) {
-        return _sum == 0xb7bca625 || _sum == 0x9479f0ae || _sum == 0x01ffc9a7
-            || _sum == 0x9493f8b2 || _sum == 0xabe1f1f5;
+        return
+            _sum == 0xb7bca625 || _sum == 0x9479f0ae || _sum == 0x01ffc9a7 || _sum == 0x9493f8b2 || _sum == 0xabe1f1f5;
     }
 }

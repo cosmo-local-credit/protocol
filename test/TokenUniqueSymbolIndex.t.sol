@@ -57,9 +57,7 @@ contract TokenUniqueSymbolIndexTest is Test {
     }
 
     function test_initialize_with_tokens() public {
-        TokenUniqueSymbolIndex newIndex = TokenUniqueSymbolIndex(
-            payable(LibClone.clone(address(implementation)))
-        );
+        TokenUniqueSymbolIndex newIndex = TokenUniqueSymbolIndex(payable(LibClone.clone(address(implementation))));
 
         bytes32[] memory symbols = new bytes32[](2);
         address[] memory tokensArr = new address[](2);

@@ -28,7 +28,10 @@ contract TokenUniqueSymbolIndex is Ownable, Initializable {
         _disableInitializers();
     }
 
-    function initialize(address owner_, address[] memory initialTokens, bytes32[] memory initialSymbols) external initializer {
+    function initialize(address owner_, address[] memory initialTokens, bytes32[] memory initialSymbols)
+        external
+        initializer
+    {
         _initializeOwner(owner_);
 
         tokens.push(address(0));
@@ -150,7 +153,7 @@ contract TokenUniqueSymbolIndex is Ownable, Initializable {
     }
 
     function supportsInterface(bytes4 _sum) external pure returns (bool) {
-        return _sum == 0xeffbf671 || _sum == 0xb7bca625 || _sum == 0x9479f0ae
-            || _sum == 0x01ffc9a7 || _sum == 0x9493f8b2 || _sum == 0x80c84bd6;
+        return _sum == 0xeffbf671 || _sum == 0xb7bca625 || _sum == 0x9479f0ae || _sum == 0x01ffc9a7
+            || _sum == 0x9493f8b2 || _sum == 0x80c84bd6;
     }
 }

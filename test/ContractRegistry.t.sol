@@ -51,9 +51,7 @@ contract ContractRegistryTest is Test {
     }
 
     function test_initialize_with_identifiers() public {
-        ContractRegistry newRegistry = ContractRegistry(
-            payable(LibClone.clone(address(implementation)))
-        );
+        ContractRegistry newRegistry = ContractRegistry(payable(LibClone.clone(address(implementation))));
 
         bytes32[] memory identifiers = new bytes32[](2);
         identifiers[0] = KEY_A;
@@ -160,9 +158,7 @@ contract ContractRegistryTest is Test {
             identifiers[i] = keccak256(abi.encodePacked(i));
         }
 
-        ContractRegistry newRegistry = ContractRegistry(
-            payable(LibClone.clone(address(implementation)))
-        );
+        ContractRegistry newRegistry = ContractRegistry(payable(LibClone.clone(address(implementation))));
 
         newRegistry.initialize(owner, identifiers);
 
