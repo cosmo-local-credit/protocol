@@ -12,6 +12,12 @@ This document provides technical specifications for all Sarafu Network Protocol 
 - [RelativeQuoter](#relativequoter)
 - [ProtocolFeeController](#protocolfeecontroller)
 - [DecimalQuoter](#decimalquoter)
+- [EthFaucet](#ethfaucet)
+- [PeriodSimple](#periodsimple)
+- [RAT](#rat)
+- [TokenUniqueSymbolIndex](#tokenuniquesymbolindex)
+- [ContractRegistry](#contractregistry)
+- [AccountsIndex](#accountsindex)
 
 ---
 
@@ -300,7 +306,7 @@ All proxy-based contracts use `_disableInitializers()` in constructor and `initi
 All stateful contracts inherit Solady's `Ownable` for owner-based access control.
 
 ### Writer Pattern
-`GiftableToken` and `Limiter` support a "writer" role - addresses with specific permissions beyond owner.
+`GiftableToken`, `Limiter`, and `RAT` support a "writer" role - addresses with specific permissions beyond owner.
 
 ### PPM (Parts Per Million)
 Fee and allocation percentages use PPM where `1_000_000 = 100%`:
@@ -310,3 +316,291 @@ Fee and allocation percentages use PPM where `1_000_000 = 100%`:
 
 ### Seal Pattern
 `SwapPool` uses progressive sealing to lock configuration during initialization phases.
+
+---
+
+## EthFaucet
+
+ETH faucet that distributes tokens with configurable period limits and registry-based access control.
+
+**Proxy:** Yes (ERC1967)
+
+**Storage:**
+- `registry` - Optional ACL contract for recipient whitelisting
+- `periodChecker` - Contract that enforces time limits between uses
+- `amount` - ETH amount distributed per faucet use
+- `sealState` - Seal state (0-7) for progressive locking
+
+**Constants:**
+- `maxSealState = 7`
+- `token = address(0)` (always ETH)
+
+**Seal States:**
+- `REGISTRY_STATE = 1` - Lock registry configuration
+- `PERIODCHECKER_STATE = 2` - Lock period checker configuration
+- `VALUE_STATE = 4` - Lock faucet amount
+
+**Key Functions:**
+- `gimme()` - Request ETH for caller
+- `giveTo(recipient)` - Request ETH for another address
+- `check(recipient)` - Check if recipient can receive ETH
+- `setAmount(value)` - Set faucet amount (owner only, requires VALUE_STATE unsealed)
+- `setRegistry(registry)` - Set ACL contract (owner only, requires REGISTRY_STATE unsealed)
+- `setPeriodChecker(checker)` - Set period checker (owner only, requires PERIODCHECKER_STATE unsealed)
+- `seal(state)` - Lock configuration (owner only)
+- `nextTime(subject)` - Get next allowed time for recipient
+- `tokenAmount()` - Get current faucet amount
+
+**Validation:**
+- Contract must have sufficient ETH balance
+- Recipient must pass ACL check (if registry set)
+- Recipient must pass period check (if periodChecker set)
+- Cannot modify sealed configurations
+
+**Period Checker Interface:**
+- `have(address)` - Returns true if recipient can use faucet
+- `poke(address)` - Record faucet usage and return success
+- `next(address)` - Get next allowed timestamp for recipient
+- `balanceThreshold()` - Optional balance threshold check
+
+**Registry Interface:**
+- `have(address)` - Returns true if address is whitelisted
+
+**Events:**
+- `Give(recipient, token, amount)` - Emitted on successful faucet use
+- `FaucetAmountChange(amount)` - Emitted when amount changes
+- `SealStateChange(sealState, registry, periodChecker)` - Emitted on state change
+
+---
+
+## PeriodSimple
+
+Simple period checker that enforces time limits and optional balance thresholds.
+
+**Proxy:** Yes (ERC1967)
+
+**Storage:**
+- `poker` - Address allowed to record faucet usage
+- `period` - Minimum time between uses (in seconds)
+- `balanceThreshold` - Maximum allowed balance for eligibility
+- `lastUsed` - Mapping of address => last usage timestamp
+
+**Key Functions:**
+- `setPeriod(period)` - Set time between uses (owner only)
+- `setPoker(poker)` - Set allowed poker address (owner only)
+- `setBalanceThreshold(threshold)` - Set balance threshold (owner only)
+- `have(subject)` - Check if subject is eligible to use faucet
+- `poke(subject)` - Record faucet usage
+- `next(subject)` - Get next allowed timestamp for subject
+
+**Eligibility Logic:**
+- Always eligible if `lastUsed[subject] == 0` (first use)
+- Eligible if `block.timestamp > lastUsed[subject] + period`
+- Ineligible if `balanceThreshold > 0` and `subject.balance >= balanceThreshold`
+
+**Validation:**
+- Only owner or poker can call `poke()`
+- Owner can modify all settings
+
+**Events:**
+- `PeriodChange(value)` - Emitted when period changes
+- `BalanceThresholdChange(value)` - Emitted when threshold changes
+
+---
+
+## RAT
+
+Receiver Active Token — on-chain registry where accounts declare which ERC20 tokens they accept as payment, in order of preference. Buyers query a vendor's list to determine which token to pay with.
+
+**Proxy:** Yes (ERC1967)
+
+**Storage:**
+- `_tokens` - Mapping of account => ordered token address list (index 0 = most preferred)
+- `writers` - Addresses authorized to set tokens on behalf of others
+
+**Constants:**
+- `MAX_TOKENS = 5` - Maximum tokens per account
+
+**Key Functions:**
+- `initialize(owner)` - Set owner
+- `setTokens(tokens)` - Set caller's own preference list
+- `setTokensFor(account, tokens)` - Set tokens for another account (owner or writer only)
+- `getTokens(account)` - Get full ordered token list
+- `tokenAt(account, index)` - Get token at specific preference index
+- `tokenCount(account)` - Get number of accepted tokens
+- `addWriter(address)` - Grant writer permission (owner only)
+- `deleteWriter(address)` - Revoke writer permission (owner only)
+- `isWriter(address)` - Check if address is writer
+
+**Update Behavior:**
+- `setTokens` is a full replace (not upsert). Every call overwrites the entire previous list with the new one. There is no append, remove-single, or merge — the caller always provides the complete desired list. To add a token, read the current list off-chain, append, and submit the new full list. To remove one, submit the list without it.
+
+**Validation:**
+- Token list must not be empty
+- Token list must not exceed `MAX_TOKENS` (5)
+- No zero addresses in the list
+- Only owner or writers can call `setTokensFor`
+
+**Events:**
+- `TokensSet(account, tokens)` - Emitted on every update
+- `WriterAdded(writer)`
+- `WriterRemoved(writer)`
+
+---
+
+## TokenUniqueSymbolIndex
+
+Token registry indexed by unique ERC20 symbol.
+
+**Proxy:** Yes (ERC1967)
+
+**Storage:**
+- `tokens` - Array of registered token addresses
+- `identifierList` - Array of symbol keys (bytes32)
+- `registry` - Mapping of symbol key => token index
+- `tokenIndex` - Mapping of token address => symbol key
+- `isWriter` - Addresses authorized to register tokens
+
+**Key Functions:**
+- `initialize(owner, initialTokens, initialSymbols)` - Set owner and pre-register tokens
+- `register(token)` - Register a token by reading its symbol (owner or writer only)
+- `add(token)` - Alias for register
+- `remove(token)` - Remove a token from registry (owner or writer only)
+- `addressOf(key)` - Get token address by symbol key
+- `entry(idx)` - Get token address by index
+- `entryCount()` - Get number of registered tokens
+- `identifier(idx)` - Get symbol key by index
+- `identifierCount()` - Get number of identifiers
+- `have(token)` - Check if token is registered
+- `addWriter(writer)` - Grant writer permission (owner only)
+- `deleteWriter(writer)` - Revoke writer permission (owner only)
+
+**Registration Logic:**
+- Calls `symbol()` on token contract to get symbol
+- Converts symbol to bytes32 (padded or truncated to 32 bytes)
+- Rejects if symbol length > 32
+- Rejects if symbol already exists
+- Adds token to registry with its symbol as key
+
+**Removal Logic:**
+- Swaps removed element with last element to maintain array compactness
+- Updates all related mappings and arrays
+- Clears token index mapping
+
+**Time Function:**
+- Always returns 0 (compatibility with AccountsIndex interface)
+
+**Validation:**
+- Only owner or writers can register/remove tokens
+- Symbol must be <= 32 bytes
+- Cannot register duplicate symbols
+- Cannot remove non-existent tokens
+
+**Events:**
+- `AddressKey(symbol, token)` - Emitted when token is registered
+- `AddressAdded(token)` - Emitted when token is added
+- `AddressRemoved(token)` - Emitted when token is removed
+- `WriterAdded(writer)` - Emitted when writer is added
+- `WriterDeleted(writer)` - Emitted when writer is removed
+
+---
+
+## ContractRegistry
+
+Keyed smart contract registry for storing contract addresses by identifiers.
+
+**Proxy:** Yes (ERC1967)
+
+**Storage:**
+- `entries` - Mapping of identifier bytes32 => contract address
+- `identifier` - Array of allowed identifiers
+
+**Key Functions:**
+- `initialize(owner, identifiers)` - Set owner and initialize allowed identifiers
+- `set(identifier, address)` - Register a contract address for an identifier (owner only)
+- `addressOf(identifier)` - Get contract address by identifier
+- `identifier(idx)` - Get identifier at index
+- `identifierCount()` - Get number of allowed identifiers
+
+**Identifier Logic:**
+- Identifiers are pre-defined during initialization
+- Only pre-defined identifiers can be used to set addresses
+- Each identifier can only be set once (cannot be overwritten)
+- Cannot set address(0) as a contract address
+
+**Validation:**
+- Only owner can set addresses
+- Address must not be zero
+- Identifier must exist in allowed list
+- Address must not already be set for that identifier
+
+**Events:**
+- `AddressKey(identifier, address)` - Emitted when address is set
+
+---
+
+## AccountsIndex
+
+Index of Ethereum addresses with support for activation/deactivation and timestamping.
+
+**Proxy:** Yes (ERC1967)
+
+**Storage:**
+- `entryList` - Array of indexed addresses
+- `entryIndex` - Mapping of address => packed entry data (index | timestamp | blocked flag)
+- `writers` - Addresses authorized to manage the index
+
+**Constants:**
+- `BLOCKED_FIELD = 1 << 128` - Bit flag for blocked/deactivated state
+
+**Key Functions:**
+- `initialize(owner)` - Set owner
+- `add(account)` - Add address to index (owner or writer only)
+- `remove(account)` - Remove address from index (owner or writer only)
+- `activate(account)` - Activate a blocked address (owner or writer only)
+- `deactivate(account)` - Deactivate/ban an address (owner or writer only)
+- `entry(idx)` - Get address at index
+- `entryCount()` - Get number of entries
+- `time(account)` - Get timestamp when account was added
+- `have(account)` - Check if account exists in index
+- `isActive(account)` - Check if account exists and is active
+- `addWriter(writer)` - Grant writer permission (owner only)
+- `deleteWriter(writer)` - Revoke writer permission (owner only)
+- `isWriter(writer)` - Check if address is writer
+
+**Entry Data Structure:**
+Each `entryIndex[address]` contains packed data:
+- Bits 0-63: Index in entryList array (uint64)
+- Bits 64-127: Timestamp of addition (block.timestamp << 64)
+- Bit 128+: Blocked flag (BLOCKED_FIELD = 1 << 128)
+
+**Activation States:**
+- Active: `entryIndex[address] & BLOCKED_FIELD != BLOCKED_FIELD`
+- Blocked/Deactivated: `entryIndex[address] & BLOCKED_FIELD == BLOCKED_FIELD`
+
+**Activation Logic:**
+- `activate()`: Shifts entry right by 129 bits, removing blocked flag
+- `deactivate()`: Shifts entry left by 129 bits and adds blocked flag
+- Cannot activate an already active account
+- Cannot deactivate an already blocked account
+
+**Removal Logic:**
+- Swaps removed element with last element to maintain array compactness
+- Does not preserve ordering of remaining elements
+
+**Constraints:**
+- Maximum 2^64 entries (index limited to uint64)
+- Each address can only be added once
+
+**Validation:**
+- Only owner or writers can add/remove/activate/deactivate
+- Cannot add duplicate addresses
+- Cannot remove non-existent addresses
+- Cannot activate/deactivate non-existent addresses
+
+**Events:**
+- `AddressAdded(account)` - Emitted when address is added
+- `AddressRemoved(account)` - Emitted when address is removed
+- `AddressActive(account, active)` - Emitted when activation state changes
+- `WriterAdded(writer)` - Emitted when writer is added
+- `WriterDeleted(writer)` - Emitted when writer is removed

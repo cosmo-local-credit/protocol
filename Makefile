@@ -1,6 +1,7 @@
 FORGE_OUT := out
 CONTRACTS := ERC1967Factory GiftableToken SwapPool Limiter FeePolicy \
-			 RelativeQuoter ProtocolFeeController DecimalQuoter Splitter
+				RelativeQuoter ProtocolFeeController DecimalQuoter Splitter \
+				EthFaucet PeriodSimple TokenUniqueSymbolIndex ContractRegistry AccountsIndex RAT
 
 ERC1967Factory_DIR           := publish/contracts/erc1967factory
 GiftableToken_DIR            := publish/contracts/giftabletoken
@@ -11,6 +12,12 @@ RelativeQuoter_DIR           := publish/contracts/relativequoter
 ProtocolFeeController_DIR    := publish/contracts/protocolfeecontroller
 DecimalQuoter_DIR            := publish/contracts/decimalquoter
 Splitter_DIR                := publish/contracts/splitter
+EthFaucet_DIR                := publish/contracts/ethfaucet
+PeriodSimple_DIR             := publish/contracts/periodsimple
+TokenUniqueSymbolIndex_DIR    := publish/contracts/tokenuniquesymbolindex
+ContractRegistry_DIR          := publish/contracts/contractregistry
+AccountsIndex_DIR            := publish/contracts/accountsindex
+RAT_DIR                     := publish/contracts/rat
 
 .PHONY: all build artifacts clean test
 
