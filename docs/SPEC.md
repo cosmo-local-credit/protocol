@@ -257,6 +257,13 @@ Price quoter using Chainlink oracles for exchange rates.
 - `removeOracle(token)` - Remove oracle mapping (owner only)
 - `valueFor(outToken, inToken, value)` - Calculate output using oracle rates
 
+**`baseCurrency` in `initialize` (metadata):**
+- `baseCurrency` is metadata, not a direct pricing input in `valueFor`.
+- Must be a non-zero **token** address or initialization reverts with `InvalidBaseCurrency()`.
+- Stored in `baseCurrency` and emitted in `Initialized(owner, baseCurrency)`.
+
+It is only a metadata reference that helps pool operators and integrators understand expected accounting context. Set `baseCurrency` to the settlement/accounting token your pool treats as primary (for example `cUSD` or `USDT` or `cKES`).
+
 **Calculation:**
 ```
 outValue = value

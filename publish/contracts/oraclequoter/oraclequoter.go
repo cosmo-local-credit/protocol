@@ -1,8 +1,7 @@
-package ethfaucet
+package oraclequoter
 
 import (
 	_ "embed"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/lmittmann/w3"
@@ -10,18 +9,18 @@ import (
 	"github.com/cosmo-local-credit/protocol/publish"
 )
 
-const ImplGasLimit uint64 = 2_000_000
+const ImplGasLimit uint64 = 1_000_000
 
-//go:embed EthFaucet.bin
+//go:embed OracleQuoter.bin
 var bytecodeHex string
 
 var funcInitialize = w3.MustNewFunc(
-	"initialize(address,uint256)", "",
+	"initialize(address,address)", "",
 )
 
 type InitArgs struct {
-	Owner  common.Address
-	Amount *big.Int
+	Owner        common.Address
+	BaseCurrency common.Address
 }
 
 func Bytecode() []byte {
@@ -29,5 +28,5 @@ func Bytecode() []byte {
 }
 
 func EncodeInit(args InitArgs) ([]byte, error) {
-	return funcInitialize.EncodeArgs(args.Owner, args.Amount)
+	return funcInitialize.EncodeArgs(args.Owner, args.BaseCurrency)
 }
