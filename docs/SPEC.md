@@ -14,7 +14,7 @@ This document provides technical specifications for all Sarafu Network Protocol 
 - [DecimalQuoter](#decimalquoter)
 - [EthFaucet](#ethfaucet)
 - [PeriodSimple](#periodsimple)
-- [RAT](#rat)
+- [CAT](#cat)
 - [TokenUniqueSymbolIndex](#tokenuniquesymbolindex)
 - [ContractRegistry](#contractregistry)
 - [AccountsIndex](#accountsindex)
@@ -306,7 +306,7 @@ All proxy-based contracts use `_disableInitializers()` in constructor and `initi
 All stateful contracts inherit Solady's `Ownable` for owner-based access control.
 
 ### Writer Pattern
-`GiftableToken`, `Limiter`, and `RAT` support a "writer" role - addresses with specific permissions beyond owner.
+`GiftableToken`, `Limiter`, and `CAT` support a "writer" role - addresses with specific permissions beyond owner.
 
 ### PPM (Parts Per Million)
 Fee and allocation percentages use PPM where `1_000_000 = 100%`:
@@ -408,9 +408,9 @@ Simple period checker that enforces time limits and optional balance thresholds.
 
 ---
 
-## RAT
+## CAT
 
-Receiver Active Token — on-chain registry where accounts declare which ERC20 tokens they accept as payment, in order of preference. Buyers query a vendor's list to determine which token to pay with.
+Counterparty Active Token (CAT) — on-chain registry where accounts declare ERC20 settlement token preferences in order of priority. The same account list can be used whether that account acts as sender or receiver, since both are counterparties in a transfer.
 
 **Proxy:** Yes (ERC1967)
 
@@ -427,7 +427,7 @@ Receiver Active Token — on-chain registry where accounts declare which ERC20 t
 - `setTokensFor(account, tokens)` - Set tokens for another account (owner or writer only)
 - `getTokens(account)` - Get full ordered token list
 - `tokenAt(account, index)` - Get token at specific preference index
-- `tokenCount(account)` - Get number of accepted tokens
+- `tokenCount(account)` - Get number of configured preferred tokens
 - `addWriter(address)` - Grant writer permission (owner only)
 - `deleteWriter(address)` - Revoke writer permission (owner only)
 - `isWriter(address)` - Check if address is writer

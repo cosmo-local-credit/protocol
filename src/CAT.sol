@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.30;
 
-import {IRAT} from "./interfaces/IRAT.sol";
+import {ICAT} from "./interfaces/ICAT.sol";
 import "solady/auth/Ownable.sol";
 import "solady/utils/Initializable.sol";
 
-contract RAT is IRAT, Ownable, Initializable {
+contract CAT is ICAT, Ownable, Initializable {
     error TooManyTokens();
     error EmptyTokenList();
     error ZeroAddress();
