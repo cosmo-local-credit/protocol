@@ -10,6 +10,7 @@ This document provides technical specifications for all Sarafu Network Protocol 
 - [FeePolicy](#feepolicy)
 - [Limiter](#limiter)
 - [RelativeQuoter](#relativequoter)
+- [OracleQuoter](#oraclequoter)
 - [ProtocolFeeController](#protocolfeecontroller)
 - [DecimalQuoter](#decimalquoter)
 - [EthFaucet](#ethfaucet)
@@ -79,12 +80,14 @@ Automated Market Maker (AMM) for token swaps with configurable fees, limits, and
 **Key Functions:**
 - `initialize(name, symbol, decimals, owner, feePolicy, feeAddress, tokenRegistry, tokenLimiter, quoter, feesDecoupled, protocolFeeController)` - Initialize pool
 - `deposit(token, value)` - Add liquidity
-- `withdraw(token, value)` - Remove liquidity
-- `swap(tokenIn, tokenOut, value)` - Execute token swap
+- `withdraw(tokenOut, tokenIn, value)` - Execute token swap (deposit `tokenIn`, receive `tokenOut`)
+- `withdraw(tokenOut)` - Withdraw accumulated owner fees for a token (owner only)
 - `seal(state)` - Lock pool configuration at initialization stage
 - `setFeePolicy(address)` - Update fee policy (owner only)
 - `setQuoter(address)` - Update quoter (owner only)
-- `collectFees(token)` - Withdraw accumulated fees (owner only)
+- `getQuote(tokenOut, tokenIn, value)` - Get quoted output before fees
+- `getAmountOut(tokenOut, tokenIn, amountIn)` - Get net output after fees
+- `getAmountIn(tokenOut, tokenIn, amountOut)` - Get required input for desired output
 
 **Seal States:**
 - 0: Unsealed (can modify all)
@@ -98,9 +101,8 @@ Automated Market Maker (AMM) for token swaps with configurable fees, limits, and
 
 **Events:**
 - `Deposit(depositor, token, value)`
-- `Withdrawal(withdrawer, token, value)`
 - `Swap(initiator, tokenIn, tokenOut, inValue, outValue, fee)`
-- `FeeCollected(collector, token, value)`
+- `Collect(feeAddress, token, value)`
 
 ---
 
@@ -157,6 +159,7 @@ Configurable fee policy with default and per-pair fee rates.
 **Key Functions:**
 - `initialize(owner, defaultFee)` - Set owner and default fee
 - `getFee(tokenIn, tokenOut)` - Get fee for specific pair
+- `calculateFee(tokenIn, tokenOut, amount)` - Calculate fee amount for an input amount
 - `getDefaultFee()` - Get default fee
 - `isActive()` - Always returns true
 - `setDefaultFee(fee)` - Update default fee (owner only)
@@ -237,6 +240,51 @@ Where:
 
 ---
 
+## OracleQuoter
+
+Price quoter using Chainlink oracles for exchange rates.
+
+**Proxy:** Yes (ERC1967)
+
+**Storage:**
+- `oracles` - Mapping of token => Chainlink aggregator address
+- `baseCurrency` - Metadata reference token for deployment context
+
+**Key Functions:**
+- `initialize(owner, baseCurrency)` - Set owner and base currency metadata
+- `setOracle(token, oracleAddress)` - Set Chainlink oracle for token (owner only)
+- `removeOracle(token)` - Remove oracle mapping (owner only)
+- `valueFor(outToken, inToken, value)` - Calculate output using oracle rates
+
+**`baseCurrency` (metadata):**
+- Must be a non-zero token address.
+- Stored and emitted for configuration traceability.
+- Not used directly by `valueFor` pricing math.
+
+**Calculation:**
+```
+outValue = value
+    * inRate / outRate
+    * 10^outTokenDecimals / 10^inTokenDecimals
+    * 10^outOracleDecimals / 10^inOracleDecimals
+```
+
+Where:
+- `inRate`, `inOracleDecimals` come from input token feed
+- `outRate`, `outOracleDecimals` come from output token feed
+
+**Validation:**
+- Oracle must be configured for both input and output tokens
+- Oracle calls must succeed
+- Oracle answer must be positive
+
+**Events:**
+- `Initialized(owner, baseCurrency)`
+- `OracleUpdated(token, oracle)`
+- `OracleRemoved(token)`
+
+---
+
 ## ProtocolFeeController
 
 Protocol-level fee configuration and recipient management.
@@ -258,7 +306,7 @@ Protocol-level fee configuration and recipient management.
 - `isActive()` - Check if protocol fees are enabled
 - `setProtocolFee(fee)` - Update protocol fee (owner only)
 - `setProtocolFeeRecipient(recipient)` - Update recipient (owner only)
-- `setActiveState(active)` - Enable/disable protocol fees (owner only)
+- `setActive(active)` - Enable/disable protocol fees (owner only)
 
 **Validation:**
 - Fee cannot exceed PPM (100%)
