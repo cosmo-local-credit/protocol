@@ -1,4 +1,4 @@
-package rat
+package cat
 
 import (
 	_ "embed"
@@ -11,7 +11,7 @@ import (
 
 const ImplGasLimit uint64 = 2_000_000
 
-//go:embed RAT.bin
+//go:embed CAT.bin
 var bytecodeHex string
 
 var funcInitialize = w3.MustNewFunc(

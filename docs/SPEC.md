@@ -15,7 +15,7 @@ This document provides technical specifications for all Sarafu Network Protocol 
 - [DecimalQuoter](#decimalquoter)
 - [EthFaucet](#ethfaucet)
 - [PeriodSimple](#periodsimple)
-- [RAT](#rat)
+- [CAT](#cat)
 - [TokenUniqueSymbolIndex](#tokenuniquesymbolindex)
 - [ContractRegistry](#contractregistry)
 - [AccountsIndex](#accountsindex)
@@ -80,12 +80,14 @@ Automated Market Maker (AMM) for token swaps with configurable fees, limits, and
 **Key Functions:**
 - `initialize(name, symbol, decimals, owner, feePolicy, feeAddress, tokenRegistry, tokenLimiter, quoter, feesDecoupled, protocolFeeController)` - Initialize pool
 - `deposit(token, value)` - Add liquidity
-- `withdraw(token, value)` - Remove liquidity
-- `swap(tokenIn, tokenOut, value)` - Execute token swap
+- `withdraw(tokenOut, tokenIn, value)` - Execute token swap (deposit `tokenIn`, receive `tokenOut`)
+- `withdraw(tokenOut)` - Withdraw accumulated owner fees for a token (owner only)
 - `seal(state)` - Lock pool configuration at initialization stage
 - `setFeePolicy(address)` - Update fee policy (owner only)
 - `setQuoter(address)` - Update quoter (owner only)
-- `collectFees(token)` - Withdraw accumulated fees (owner only)
+- `getQuote(tokenOut, tokenIn, value)` - Get quoted output before fees
+- `getAmountOut(tokenOut, tokenIn, amountIn)` - Get net output after fees
+- `getAmountIn(tokenOut, tokenIn, amountOut)` - Get required input for desired output
 
 **Seal States:**
 - 0: Unsealed (can modify all)
@@ -99,9 +101,8 @@ Automated Market Maker (AMM) for token swaps with configurable fees, limits, and
 
 **Events:**
 - `Deposit(depositor, token, value)`
-- `Withdrawal(withdrawer, token, value)`
 - `Swap(initiator, tokenIn, tokenOut, inValue, outValue, fee)`
-- `FeeCollected(collector, token, value)`
+- `Collect(feeAddress, token, value)`
 
 ---
 
@@ -158,6 +159,7 @@ Configurable fee policy with default and per-pair fee rates.
 **Key Functions:**
 - `initialize(owner, defaultFee)` - Set owner and default fee
 - `getFee(tokenIn, tokenOut)` - Get fee for specific pair
+- `calculateFee(tokenIn, tokenOut, amount)` - Calculate fee amount for an input amount
 - `getDefaultFee()` - Get default fee
 - `isActive()` - Always returns true
 - `setDefaultFee(fee)` - Update default fee (owner only)
@@ -336,7 +338,7 @@ Protocol-level fee configuration and recipient management.
 - `isActive()` - Check if protocol fees are enabled
 - `setProtocolFee(fee)` - Update protocol fee (owner only)
 - `setProtocolFeeRecipient(recipient)` - Update recipient (owner only)
-- `setActiveState(active)` - Enable/disable protocol fees (owner only)
+- `setActive(active)` - Enable/disable protocol fees (owner only)
 
 **Validation:**
 - Fee cannot exceed PPM (100%)
@@ -384,7 +386,7 @@ All proxy-based contracts use `_disableInitializers()` in constructor and `initi
 All stateful contracts inherit Solady's `Ownable` for owner-based access control.
 
 ### Writer Pattern
-`GiftableToken`, `Limiter`, and `RAT` support a "writer" role - addresses with specific permissions beyond owner.
+`GiftableToken`, `Limiter`, and `CAT` support a "writer" role - addresses with specific permissions beyond owner.
 
 ### PPM (Parts Per Million)
 Fee and allocation percentages use PPM where `1_000_000 = 100%`:
@@ -486,9 +488,9 @@ Simple period checker that enforces time limits and optional balance thresholds.
 
 ---
 
-## RAT
+## CAT
 
-Receiver Active Token — on-chain registry where accounts declare which ERC20 tokens they accept as payment, in order of preference. Buyers query a vendor's list to determine which token to pay with.
+Counterparty Active Token (CAT) — on-chain registry where accounts declare ERC20 settlement token preferences in order of priority. The same account list can be used whether that account acts as sender or receiver, since both are counterparties in a transfer.
 
 **Proxy:** Yes (ERC1967)
 
@@ -505,7 +507,7 @@ Receiver Active Token — on-chain registry where accounts declare which ERC20 t
 - `setTokensFor(account, tokens)` - Set tokens for another account (owner or writer only)
 - `getTokens(account)` - Get full ordered token list
 - `tokenAt(account, index)` - Get token at specific preference index
-- `tokenCount(account)` - Get number of accepted tokens
+- `tokenCount(account)` - Get number of configured preferred tokens
 - `addWriter(address)` - Grant writer permission (owner only)
 - `deleteWriter(address)` - Revoke writer permission (owner only)
 - `isWriter(address)` - Check if address is writer
