@@ -176,3 +176,19 @@ func MustHexDecode(hexStr string) []byte {
 	}
 	return b
 }
+
+func GenerateSalt(deployer common.Address, contractName string) common.Hash {
+	uniqueID := []byte(contractName)
+	id := make([]byte, 12)
+	if len(uniqueID) > 12 {
+		copy(id, uniqueID[:12])
+	} else {
+		copy(id, uniqueID)
+	}
+
+	salt := make([]byte, 32)
+	copy(salt[:20], deployer.Bytes())
+	copy(salt[20:], id)
+
+	return common.BytesToHash(salt)
+}
