@@ -46,6 +46,59 @@ go get github.com/cosmo-local-credit/protocol/publish@latest
 
 ```
 
+## CLI (ge-publish style)
+
+A simple CLI is available at `publish/cmd/ge-publish`.
+
+It deploys contracts one-by-one with:
+- deterministic `ERC1967Factory` deployment via Arachnid CREATE2 (`0x4e59...`), unless `--factory-address` is provided,
+- implementation deployment,
+- proxy deployment + typed `initialize()` encoding (for proxied contracts).
+
+Run one contract:
+
+```bash
+cd publish
+go run ./cmd/ge-publish publish-one \
+    --contract giftabletoken \
+    --rpc-url "$RPC_URL" \
+    --chain-id "$CHAIN_ID" \
+    --private-key "$PRIVATE_KEY"
+```
+
+`publish-one` common required inputs:
+- `--contract`
+- `--rpc-url`
+- `--chain-id`
+- `--private-key`
+
+Additional required flags by contract:
+
+| Contract | Extra required flags |
+|---|---|
+| `erc1967factory` | none |
+| `decimalquoter` | none |
+| `accountsindex` | none |
+| `cat` | none |
+| `ethfaucet` | none (`--faucet-amount` optional) |
+| `feepolicy` | none (`--fee-policy-default` optional) |
+| `giftabletoken` | none (`--token-*` optional) |
+| `limiter` | none |
+| `periodsimple` | none (`--period-poker` optional) |
+| `protocolfeecontroller` | none (`--protocol-fee`, `--protocol-recipient` optional) |
+| `relativequoter` | none |
+| `oraclequoter` | `--base-currency` |
+| `contractregistry` | `--registry-identifiers` |
+| `splitter` | `--splitter-accounts`, `--splitter-allocations` (same length) |
+| `tokenuniquesymbolindex` | none (`--token-index-tokens`, `--token-index-symbols` optional; if both provided, lengths must match) |
+| `swappool` | `--pool-fee-policy`, `--pool-token-limiter`, `--pool-protocol-fee-controller`, `--pool-quoter` (must be a quoter proxy address in `publish-one`) |
+
+Deterministic factory salt is derived from `erc1967factory.Name()` and packed as caller-address (20 bytes) + name bytes (12 bytes), matching CREATE2 caller-prefix salt requirements. Use `--factory-salt-suffix` (or `FACTORY_SALT_SUFFIX`) to vary deployments while keeping the same derivation scheme.
+
+Core credentials are supported via flags or env variables:
+- `--private-key` or `PRIVATE_KEY`
+- `--public-address` or `PUBLIC_ADDRESS`
+
 ## Building Artifacts
 
 The `.bin` files (embedded bytecode) must be built from the Solidity source before the Go code compiles:

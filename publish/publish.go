@@ -18,6 +18,8 @@ import (
 
 const ProxyGasLimit uint64 = 500_000
 
+var ArachnidCreate2Factory = common.HexToAddress("0x4e59b44847b379578588920cA78FbF26c0B4956C")
+
 var (
 	funcDeployAndCall = w3.MustNewFunc(
 		"deployAndCall(address,address,bytes)", "address",
@@ -155,6 +157,40 @@ func (d *Deployer) WaitForReceipt(ctx context.Context, txHash common.Hash) (*typ
 	}
 }
 
+func (d *Deployer) CodeAt(ctx context.Context, address common.Address) ([]byte, error) {
+	var code []byte
+	if err := d.client.CallCtx(ctx, eth.Code(address, nil).Returns(&code)); err != nil {
+		return nil, fmt.Errorf("get code at %s: %w", address.Hex(), err)
+	}
+	return code, nil
+}
+
+func (d *Deployer) DeployDeterministicViaArachnid(ctx context.Context, salt common.Hash, bytecode []byte, gasLimit uint64) (DeployResult, error) {
+	nonce, err := d.getNonce(ctx)
+	if err != nil {
+		return DeployResult{}, err
+	}
+
+	contractAddr := PredictCreate2Address(ArachnidCreate2Factory, salt, bytecode)
+	payload := append(salt.Bytes(), bytecode...)
+
+	tx := types.NewTx(&types.DynamicFeeTx{
+		Nonce:     nonce,
+		To:        &ArachnidCreate2Factory,
+		GasFeeCap: d.gasFeeCap,
+		GasTipCap: d.gasTipCap,
+		Gas:       gasLimit,
+		Data:      payload,
+	})
+
+	txHash, err := d.sendTx(ctx, tx)
+	if err != nil {
+		return DeployResult{}, err
+	}
+
+	return DeployResult{TxHash: txHash, ContractAddress: contractAddr}, nil
+}
+
 func ProxyAddressFromReceipt(receipt *types.Receipt) (common.Address, error) {
 	for _, log := range receipt.Logs {
 		var (
@@ -191,4 +227,8 @@ func GenerateSalt(deployer common.Address, contractName string) common.Hash {
 	copy(salt[20:], id)
 
 	return common.BytesToHash(salt)
+}
+
+func PredictCreate2Address(deployer common.Address, salt common.Hash, initCode []byte) common.Address {
+	return crypto.CreateAddress2(deployer, salt, crypto.Keccak256(initCode))
 }
