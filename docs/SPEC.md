@@ -248,18 +248,23 @@ Price quoter using Chainlink oracles for exchange rates.
 
 **Storage:**
 - `oracles` - Mapping of token => Chainlink aggregator address
-- `baseCurrency` - Metadata reference token for deployment context
+- `baseCurrency` - Base currency address for price references
+
+**Constants:**
+- None (normalizes token decimals and oracle decimals)
 
 **Key Functions:**
-- `initialize(owner, baseCurrency)` - Set owner and base currency metadata
+- `initialize(owner, baseCurrency)` - Set owner and base currency
 - `setOracle(token, oracleAddress)` - Set Chainlink oracle for token (owner only)
 - `removeOracle(token)` - Remove oracle mapping (owner only)
 - `valueFor(outToken, inToken, value)` - Calculate output using oracle rates
 
-**`baseCurrency` (metadata):**
-- Must be a non-zero token address.
-- Stored and emitted for configuration traceability.
-- Not used directly by `valueFor` pricing math.
+**`baseCurrency` in `initialize` (metadata):**
+- `baseCurrency` is metadata, not a direct pricing input in `valueFor`.
+- Must be a non-zero **token** address or initialization reverts with `InvalidBaseCurrency()`.
+- Stored in `baseCurrency` and emitted in `Initialized(owner, baseCurrency)`.
+
+It is only a metadata reference that helps pool operators and integrators understand expected accounting context. Set `baseCurrency` to the settlement/accounting token your pool treats as primary (for example `cUSD` or `USDT` or `cKES`).
 
 **Calculation:**
 ```
@@ -270,13 +275,40 @@ outValue = value
 ```
 
 Where:
-- `inRate`, `inOracleDecimals` come from input token feed
-- `outRate`, `outOracleDecimals` come from output token feed
+- `inRate`, `inOracleDecimals` come from input token's Chainlink feed
+- `outRate`, `outOracleDecimals` come from output token's Chainlink feed
+- Feed decimals can differ (e.g. `KES / USD` uses 18 decimals on Celo, while many USD feeds use 8)
 
 **Validation:**
 - Oracle must be configured for both input and output tokens
 - Oracle calls must succeed
-- Oracle answer must be positive
+- Oracle must return positive price (> 0)
+- No fallback to default rates - reverts on missing or invalid oracles
+- Supports tokens with any decimal precision (6, 8, 12, 18, etc.)
+
+**Operator Setup Example (Celo):**
+
+Goal: support swaps between
+- `MBUNI` (pegged to 1 KES)
+- `USDT`
+- `cUSD`
+- `SANTOS` (pegged to 1 BRL)
+
+Map each token to a Chainlink feed in the same quote denomination (`/USD`):
+- `MBUNI -> KES / USD` feed: `0x0826492a24b1dBd1d8fcB4701b38C557CE685e9D`
+- `USDT -> USDT / USD` feed: `0x5e37AF40A7A344ec9b03CCD34a250F3dA9a20B02`
+- `cUSD -> CUSD / USD` feed: `0xe38A27BE4E7d866327e09736F3C570F256FFd048`
+- `SANTOS -> BRL / USD` feed: `0xe8EcaF727080968Ed5F6DBB595B91e50eEb9F8B3`
+
+With this setup, the quoter can price all of the following directly:
+- `KES -> cUSD` (MBUNI to cUSD)
+- `BRL -> KES` (SANTOS to MBUNI)
+- `KES -> KES` (between two different KES-pegged tokens)
+- `USDT -> cUSD`
+
+Implementation note:
+- Use one feed per token peg/asset and keep all feeds in the same quote currency family (e.g. all `/USD`).
+- If a token has no oracle mapping, `valueFor` reverts with `OracleNotSet(token)`.
 
 **Events:**
 - `Initialized(owner, baseCurrency)`
