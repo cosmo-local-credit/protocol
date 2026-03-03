@@ -1,3 +1,4 @@
+// Author:	Mohamed Sohail <sohail@grassecon.org> 43CA77F641ADA031C12665CB47461C31B006BC0E
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.30;
 
@@ -13,15 +14,21 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
     error OracleNotSet(address token);
     error OracleCallFailed(address oracle, string reason);
     error InvalidOraclePrice(address oracle);
+    error StaleOraclePrice(address oracle);
     error InvalidBaseCurrency();
+    error InvalidToken();
     error InvalidDecimals(uint8 decimals);
+
+    uint256 private constant DEFAULT_MAX_STALENESS = 86400; // 1 day
 
     mapping(address => address) public oracles;
     address public baseCurrency;
+    uint256 public maxStaleness;
 
     event Initialized(address indexed owner, address indexed baseCurrency);
     event OracleUpdated(address indexed token, address indexed oracle);
     event OracleRemoved(address indexed token);
+    event MaxStalenessUpdated(uint256 maxStaleness);
 
     constructor() {
         _disableInitializers();
@@ -31,11 +38,17 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
         if (_baseCurrency == address(0)) revert InvalidBaseCurrency();
         _initializeOwner(owner);
         baseCurrency = _baseCurrency;
+        maxStaleness = DEFAULT_MAX_STALENESS;
         emit Initialized(owner, _baseCurrency);
     }
 
+    function setMaxStaleness(uint256 _maxStaleness) public onlyOwner {
+        maxStaleness = _maxStaleness;
+        emit MaxStalenessUpdated(_maxStaleness);
+    }
+
     function setOracle(address token, address oracleAddress) public onlyOwner {
-        if (token == address(0) || oracleAddress == address(0)) revert InvalidBaseCurrency();
+        if (token == address(0) || oracleAddress == address(0)) revert InvalidToken();
         oracles[token] = oracleAddress;
         emit OracleUpdated(token, oracleAddress);
     }
@@ -72,13 +85,14 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
         if (oracle == address(0)) revert OracleNotSet(token);
 
         try IChainlinkAggregatorV3(oracle).latestRoundData() returns (
-            uint80, /* roundId */
+            uint80,
             int256 answer,
-            uint256, /* startedAt */
-            uint256, /* updatedAt */
-            uint80 /* answeredInRound */
+            uint256,
+            uint256 updatedAt,
+            uint80
         ) {
             if (answer <= 0) revert InvalidOraclePrice(oracle);
+            if (block.timestamp - updatedAt > maxStaleness) revert StaleOraclePrice(oracle);
             rate = uint256(answer);
         } catch Error(string memory reason) {
             revert OracleCallFailed(oracle, reason);
@@ -109,9 +123,11 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
         uint256 outRateScale = getScale(outRateDecimals);
         uint256 inRateScale = getScale(inRateDecimals);
 
-        uint256 output = FixedPointMathLib.fullMulDiv(inputValue, inRate, inRateScale);
-        output = FixedPointMathLib.fullMulDiv(output, outScale, inScale);
-        return FixedPointMathLib.fullMulDiv(output, outRateScale, outRate);
+        return FixedPointMathLib.fullMulDiv(
+            inputValue,
+            inRate * outScale * outRateScale,
+            inRateScale * inScale * outRate
+        );
     }
 
     function getScale(uint8 decimals) internal pure returns (uint256) {

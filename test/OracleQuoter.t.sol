@@ -15,7 +15,9 @@ contract OracleQuoterTest is Test {
     error OracleNotSet(address token);
     error OracleCallFailed(address oracle, string reason);
     error InvalidOraclePrice(address oracle);
+    error StaleOraclePrice(address oracle);
     error InvalidBaseCurrency();
+    error InvalidToken();
     error InvalidDecimals(uint8 decimals);
 
     OracleQuoter public quoter;
@@ -121,7 +123,7 @@ contract OracleQuoterTest is Test {
 
     function test_setOracle_revertIf_zeroAddress() public {
         vm.prank(owner);
-        vm.expectRevert(InvalidBaseCurrency.selector);
+        vm.expectRevert(InvalidToken.selector);
         quoter.setOracle(address(0), makeAddr("newOracle"));
     }
 
@@ -242,6 +244,30 @@ contract OracleQuoterTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(InvalidOraclePrice.selector, address(oracleSRF)));
         quoter.valueFor(address(tokenMBAO), address(tokenSRF), input);
+    }
+
+    function test_setMaxStaleness() public {
+        vm.prank(owner);
+        quoter.setMaxStaleness(3600);
+        assertEq(quoter.maxStaleness(), 3600);
+    }
+
+    function test_setMaxStaleness_revertIf_notOwner() public {
+        vm.prank(makeAddr("notOwner"));
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        quoter.setMaxStaleness(3600);
+    }
+
+    function test_valueFor_revertIf_staleOracle() public {
+        vm.warp(block.timestamp + 2 days);
+        vm.expectRevert(abi.encodeWithSelector(StaleOraclePrice.selector, address(oracleSRF)));
+        quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
+    }
+
+    function test_valueFor_acceptsOracleWithinStaleness() public {
+        vm.warp(block.timestamp + 12 hours);
+        uint256 output = quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
+        assertEq(output, 2_000_000);
     }
 
     function test_valueFor_largeAmounts() public {
