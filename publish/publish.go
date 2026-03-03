@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -42,6 +43,8 @@ type (
 		address   common.Address
 		gasFeeCap *big.Int
 		gasTipCap *big.Int
+		nonce     uint64
+		hasNonce  bool
 	}
 )
 
@@ -69,11 +72,17 @@ func (d *Deployer) Close() error {
 }
 
 func (d *Deployer) getNonce(ctx context.Context) (uint64, error) {
-	var nonce uint64
-	if err := d.client.CallCtx(ctx, eth.Nonce(d.address, nil).Returns(&nonce)); err != nil {
-		return 0, fmt.Errorf("get nonce: %w", err)
+	if !d.hasNonce {
+		var nonce uint64
+		if err := d.client.CallCtx(ctx, eth.Nonce(d.address, nil).Returns(&nonce)); err != nil {
+			return 0, fmt.Errorf("get nonce: %w", err)
+		}
+		d.nonce = nonce
+		d.hasNonce = true
 	}
-	return nonce, nil
+	n := d.nonce
+	d.nonce++
+	return n, nil
 }
 
 func (d *Deployer) sendTx(ctx context.Context, tx *types.Transaction) (common.Hash, error) {
@@ -81,10 +90,11 @@ func (d *Deployer) sendTx(ctx context.Context, tx *types.Transaction) (common.Ha
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("sign tx: %w", err)
 	}
-	if err := d.client.CallCtx(ctx, eth.SendTx(signedTx).Returns(nil)); err != nil {
+	var txHash common.Hash
+	if err := d.client.CallCtx(ctx, eth.SendTx(signedTx).Returns(&txHash)); err != nil {
 		return common.Hash{}, fmt.Errorf("send tx: %w", err)
 	}
-	return signedTx.Hash(), nil
+	return txHash, nil
 }
 
 func (d *Deployer) DeployImplementation(ctx context.Context, bytecode []byte, gasLimit uint64) (DeployResult, error) {
@@ -206,7 +216,7 @@ func ProxyAddressFromReceipt(receipt *types.Receipt) (common.Address, error) {
 }
 
 func MustHexDecode(hexStr string) []byte {
-	b, err := hex.DecodeString(hexStr)
+	b, err := hex.DecodeString(strings.TrimSpace(hexStr))
 	if err != nil {
 		panic(fmt.Sprintf("decode hex: %v", err))
 	}

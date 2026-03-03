@@ -85,11 +85,7 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
         if (oracle == address(0)) revert OracleNotSet(token);
 
         try IChainlinkAggregatorV3(oracle).latestRoundData() returns (
-            uint80,
-            int256 answer,
-            uint256,
-            uint256 updatedAt,
-            uint80
+            uint80, int256 answer, uint256, uint256 updatedAt, uint80
         ) {
             if (answer <= 0) revert InvalidOraclePrice(oracle);
             if (block.timestamp - updatedAt > maxStaleness) revert StaleOraclePrice(oracle);
@@ -123,11 +119,8 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
         uint256 outRateScale = getScale(outRateDecimals);
         uint256 inRateScale = getScale(inRateDecimals);
 
-        return FixedPointMathLib.fullMulDiv(
-            inputValue,
-            inRate * outScale * outRateScale,
-            inRateScale * inScale * outRate
-        );
+        return
+            FixedPointMathLib.fullMulDiv(inputValue, inRate * outScale * outRateScale, inRateScale * inScale * outRate);
     }
 
     function getScale(uint8 decimals) internal pure returns (uint256) {

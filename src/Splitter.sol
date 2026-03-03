@@ -97,7 +97,7 @@ contract Splitter is ISplitter, Ownable, Initializable {
             }
         }
 
-        if (sum != uint32(PERCENTAGE_SCALE)) revert InvalidAllocationsSum();
+        if (uint256(sum) != PERCENTAGE_SCALE) revert InvalidAllocationsSum();
     }
 
     function _distributeETH(uint256 amountToSplit, address[] calldata accounts, uint32[] calldata percentAllocations)

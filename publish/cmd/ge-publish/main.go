@@ -48,6 +48,7 @@ type config struct {
 	TimeoutSeconds            int
 	FactoryAddress            string
 	FactorySaltSuffix         string
+	ImplAddress               string
 	BaseCurrency              string
 	PoolQuoter                string
 	PoolTokenRegistry         string
@@ -83,7 +84,15 @@ type report struct {
 }
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] != "publish-one" {
+	if len(os.Args) < 2 {
+		printUsage()
+		os.Exit(2)
+	}
+
+	cmd := os.Args[1]
+	switch cmd {
+	case "publish-one", "deploy-impl", "deploy-proxy":
+	default:
 		printUsage()
 		os.Exit(2)
 	}
@@ -93,14 +102,24 @@ func main() {
 		exitErr(err)
 	}
 
-	if err := run(cfg); err != nil {
+	switch cmd {
+	case "publish-one":
+		err = run(cfg)
+	case "deploy-impl":
+		err = runDeployImpl(cfg)
+	case "deploy-proxy":
+		err = runDeployProxy(cfg)
+	}
+	if err != nil {
 		exitErr(err)
 	}
 }
 
 func printUsage() {
 	fmt.Println("Usage:")
-	fmt.Println("  ge-publish publish-one --contract <name> [flags]")
+	fmt.Println("  ge-publish publish-one  --contract <name> [flags]   deploy implementation + proxy")
+	fmt.Println("  ge-publish deploy-impl  --contract <name> [flags]   deploy implementation only")
+	fmt.Println("  ge-publish deploy-proxy --contract <name> --factory-address <addr> --impl-address <addr> [flags]   deploy proxy only")
 	fmt.Println()
 	fmt.Println("Core flags/env: --rpc-url(RPC_URL) --chain-id(CHAIN_ID) --private-key(PRIVATE_KEY) [--public-address(PUBLIC_ADDRESS)]")
 }
@@ -159,6 +178,7 @@ func parseFlags(args []string) (config, error) {
 	fs.IntVar(&cfg.TimeoutSeconds, "timeout-seconds", cfg.TimeoutSeconds, "timeout in seconds")
 	fs.StringVar(&cfg.FactoryAddress, "factory-address", cfg.FactoryAddress, "existing ERC1967Factory address")
 	fs.StringVar(&cfg.FactorySaltSuffix, "factory-salt-suffix", cfg.FactorySaltSuffix, "optional suffix appended to factory Name() before salt derivation")
+	fs.StringVar(&cfg.ImplAddress, "impl-address", cfg.ImplAddress, "existing implementation address (deploy-proxy only)")
 	fs.StringVar(&cfg.BaseCurrency, "base-currency", cfg.BaseCurrency, "base currency for OracleQuoter")
 	fs.StringVar(&cfg.PoolQuoter, "pool-quoter", cfg.PoolQuoter, "relative|oracle")
 	fs.StringVar(&cfg.PoolTokenRegistry, "pool-token-registry", cfg.PoolTokenRegistry, "override token registry")
@@ -567,6 +587,300 @@ func deployProxied(ctx context.Context, d *publish.Deployer, factory, admin comm
 	}
 
 	return implAddr, proxyAddr, nil
+}
+
+func contractBytecode(contract string) ([]byte, uint64, error) {
+	switch strings.ToLower(strings.TrimSpace(contract)) {
+	case "accountsindex":
+		return accountsindex.Bytecode(), accountsindex.ImplGasLimit, nil
+	case "cat":
+		return cat.Bytecode(), cat.ImplGasLimit, nil
+	case "contractregistry":
+		return contractregistry.Bytecode(), contractregistry.ImplGasLimit, nil
+	case "decimalquoter":
+		return decimalquoter.Bytecode(), decimalquoter.GasLimit, nil
+	case "erc1967factory", "factory":
+		return erc1967factory.Bytecode(), erc1967factory.GasLimit, nil
+	case "ethfaucet":
+		return ethfaucet.Bytecode(), ethfaucet.ImplGasLimit, nil
+	case "feepolicy":
+		return feepolicy.Bytecode(), feepolicy.ImplGasLimit, nil
+	case "giftabletoken", "token":
+		return giftabletoken.Bytecode(), giftabletoken.ImplGasLimit, nil
+	case "limiter":
+		return limiter.Bytecode(), limiter.ImplGasLimit, nil
+	case "oraclequoter":
+		return oraclequoter.Bytecode(), oraclequoter.ImplGasLimit, nil
+	case "periodsimple":
+		return periodsimple.Bytecode(), periodsimple.ImplGasLimit, nil
+	case "protocolfeecontroller", "pfc":
+		return protocolfeecontroller.Bytecode(), protocolfeecontroller.ImplGasLimit, nil
+	case "relativequoter":
+		return relativequoter.Bytecode(), relativequoter.ImplGasLimit, nil
+	case "splitter":
+		return splitter.Bytecode(), splitter.ImplGasLimit, nil
+	case "swappool":
+		return swappool.Bytecode(), swappool.ImplGasLimit, nil
+	case "tokenuniquesymbolindex", "tokenindex":
+		return tokenuniquesymbolindex.Bytecode(), tokenuniquesymbolindex.ImplGasLimit, nil
+	default:
+		return nil, 0, fmt.Errorf("unsupported contract: %s", contract)
+	}
+}
+
+func runDeployImpl(cfg config) error {
+	key, _, err := parsePrivateKey(cfg.PrivateKey)
+	if err != nil {
+		return err
+	}
+
+	d, err := publish.NewDeployer(cfg.RPCURL, cfg.ChainID, key, big.NewInt(cfg.GasFeeCap), big.NewInt(cfg.GasTipCap))
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	defer cancel()
+
+	bytecode, gasLimit, err := contractBytecode(cfg.Contract)
+	if err != nil {
+		return err
+	}
+
+	addr, err := deployPlain(ctx, d, cfg.Contract, bytecode, gasLimit)
+	if err != nil {
+		return err
+	}
+
+	out := report{Implementations: map[string]string{strings.ToLower(cfg.Contract): addr.Hex()}}
+	blob, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(blob))
+	return nil
+}
+
+func runDeployProxy(cfg config) error {
+	if cfg.FactoryAddress == "" {
+		return errors.New("--factory-address is required for deploy-proxy")
+	}
+	if cfg.ImplAddress == "" {
+		return errors.New("--impl-address is required for deploy-proxy")
+	}
+
+	key, deployerAddr, err := parsePrivateKey(cfg.PrivateKey)
+	if err != nil {
+		return err
+	}
+
+	owner := deployerAddr
+	if cfg.Owner != "" {
+		owner, err = parseAddress(cfg.Owner)
+		if err != nil {
+			return err
+		}
+	}
+
+	admin := owner
+	if cfg.Admin != "" {
+		admin, err = parseAddress(cfg.Admin)
+		if err != nil {
+			return err
+		}
+	}
+
+	factoryAddr, err := parseAddress(cfg.FactoryAddress)
+	if err != nil {
+		return err
+	}
+
+	implAddr, err := parseAddress(cfg.ImplAddress)
+	if err != nil {
+		return err
+	}
+
+	d, err := publish.NewDeployer(cfg.RPCURL, cfg.ChainID, key, big.NewInt(cfg.GasFeeCap), big.NewInt(cfg.GasTipCap))
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	defer cancel()
+
+	feeAddress := owner
+	if cfg.PoolFeeAddress != "" {
+		feeAddress, err = parseAddress(cfg.PoolFeeAddress)
+		if err != nil {
+			return err
+		}
+	}
+
+	protocolRecipient := owner
+	if cfg.ProtocolRecipient != "" {
+		protocolRecipient, err = parseAddress(cfg.ProtocolRecipient)
+		if err != nil {
+			return err
+		}
+	}
+
+	periodPoker := owner
+	if cfg.PeriodPoker != "" {
+		periodPoker, err = parseAddress(cfg.PeriodPoker)
+		if err != nil {
+			return err
+		}
+	}
+
+	baseCurrency := common.Address{}
+	if cfg.BaseCurrency != "" {
+		baseCurrency, err = parseAddress(cfg.BaseCurrency)
+		if err != nil {
+			return err
+		}
+	}
+
+	initData, err := encodeInitFor(cfg.Contract, cfg, owner, admin, feeAddress, protocolRecipient, periodPoker, baseCurrency)
+	if err != nil {
+		return err
+	}
+
+	txHash, err := d.DeployProxy(ctx, factoryAddr, implAddr, admin, initData, publish.ProxyGasLimit)
+	if err != nil {
+		return fmt.Errorf("deploy proxy: %w", err)
+	}
+	receipt, err := d.WaitForReceipt(ctx, txHash)
+	if err != nil {
+		return fmt.Errorf("wait for proxy receipt: %w", err)
+	}
+	if receipt.Status != 1 {
+		return fmt.Errorf("proxy deployment failed: %s", receipt.TxHash.Hex())
+	}
+	proxyAddr, err := publish.ProxyAddressFromReceipt(receipt)
+	if err != nil {
+		return err
+	}
+
+	key2 := strings.ToLower(cfg.Contract)
+	out := report{
+		Factory:         factoryAddr.Hex(),
+		Implementations: map[string]string{key2: implAddr.Hex()},
+		Proxies:         map[string]string{key2: proxyAddr.Hex()},
+	}
+	blob, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(blob))
+	return nil
+}
+
+func encodeInitFor(contract string, cfg config, owner, admin, feeAddress, protocolRecipient, periodPoker, baseCurrency common.Address) ([]byte, error) {
+	var err error
+	switch strings.ToLower(strings.TrimSpace(contract)) {
+	case "accountsindex":
+		return accountsindex.EncodeInit(accountsindex.InitArgs{Owner: owner})
+	case "cat":
+		return cat.EncodeInit(cat.InitArgs{Owner: owner})
+	case "contractregistry":
+		registryIDs := splitCSV(cfg.RegistryIDs)
+		if len(registryIDs) == 0 {
+			return nil, errors.New("--registry-identifiers is required for contractregistry")
+		}
+		ids := make([][]byte, len(registryIDs))
+		for i, id := range registryIDs {
+			ids[i] = []byte(id)
+		}
+		return contractregistry.EncodeInit(contractregistry.InitArgs{Owner: owner, Identifiers: ids})
+	case "ethfaucet":
+		return ethfaucet.EncodeInit(ethfaucet.InitArgs{Owner: owner, Amount: new(big.Int).SetUint64(cfg.FaucetAmount)})
+	case "feepolicy":
+		return feepolicy.EncodeInit(feepolicy.InitArgs{Owner: owner, DefaultFee: big.NewInt(cfg.FeePolicyDefault)})
+	case "giftabletoken", "token":
+		return giftabletoken.EncodeInit(giftabletoken.InitArgs{Name: cfg.TokenName, Symbol: cfg.TokenSymbol, Decimals: uint8(cfg.TokenDecimals), Owner: owner, ExpiresAt: new(big.Int).SetUint64(cfg.TokenExpiresAt)})
+	case "limiter":
+		return limiter.EncodeInit(limiter.InitArgs{Owner: owner})
+	case "oraclequoter":
+		if baseCurrency == (common.Address{}) {
+			return nil, errors.New("--base-currency is required for oraclequoter")
+		}
+		return oraclequoter.EncodeInit(oraclequoter.InitArgs{Owner: owner, BaseCurrency: baseCurrency})
+	case "periodsimple":
+		return periodsimple.EncodeInit(periodsimple.InitArgs{Owner: owner, Poker: periodPoker})
+	case "protocolfeecontroller", "pfc":
+		return protocolfeecontroller.EncodeInit(protocolfeecontroller.InitArgs{Owner: owner, InitialFee: big.NewInt(cfg.ProtocolFee), InitialRecipient: protocolRecipient})
+	case "relativequoter":
+		return relativequoter.EncodeInit(relativequoter.InitArgs{Owner: owner})
+	case "splitter":
+		splitAccounts, err := parseAddressList(cfg.SplitterAccounts)
+		if err != nil {
+			return nil, err
+		}
+		splitAllocs, err := parseUint32List(cfg.SplitterAllocs)
+		if err != nil {
+			return nil, err
+		}
+		if len(splitAccounts) == 0 || len(splitAccounts) != len(splitAllocs) {
+			return nil, errors.New("--splitter-accounts and --splitter-allocations are required and must have equal length")
+		}
+		return splitter.EncodeInit(splitter.InitArgs{Owner: owner, Accounts: splitAccounts, PercentAllocations: splitAllocs})
+	case "tokenuniquesymbolindex", "tokenindex":
+		indexTokens, err := parseAddressList(cfg.TokenIndexTokens)
+		if err != nil {
+			return nil, err
+		}
+		indexSymbols := splitCSV(cfg.TokenIndexSymbols)
+		if len(indexTokens) > 0 && len(indexSymbols) > 0 && len(indexTokens) != len(indexSymbols) {
+			return nil, fmt.Errorf("token-index lengths mismatch: %d != %d", len(indexTokens), len(indexSymbols))
+		}
+		initialSymbols := make([][]byte, len(indexSymbols))
+		for i, s := range indexSymbols {
+			initialSymbols[i] = []byte(s)
+		}
+		return tokenuniquesymbolindex.EncodeInit(tokenuniquesymbolindex.InitArgs{Owner: owner, InitialTokens: indexTokens, InitialSymbols: initialSymbols})
+	case "swappool":
+		feePolicy, err := parseAddress(cfg.PoolFeePolicy)
+		if err != nil {
+			return nil, fmt.Errorf("--pool-fee-policy is required for swappool: %w", err)
+		}
+		tokenLimiter, err := parseAddress(cfg.PoolTokenLimiter)
+		if err != nil {
+			return nil, fmt.Errorf("--pool-token-limiter is required for swappool: %w", err)
+		}
+		pfc, err := parseAddress(cfg.PoolProtocolFeeController)
+		if err != nil {
+			return nil, fmt.Errorf("--pool-protocol-fee-controller is required for swappool: %w", err)
+		}
+		quoterAddr, err := parseAddress(cfg.PoolQuoter)
+		if err != nil {
+			return nil, fmt.Errorf("--pool-quoter must be a hex address for swappool: %w", err)
+		}
+		tokenRegistry := common.Address{}
+		if cfg.PoolTokenRegistry != "" {
+			tokenRegistry, err = parseAddress(cfg.PoolTokenRegistry)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return swappool.EncodeInit(swappool.InitArgs{
+			Name:                  cfg.PoolName,
+			Symbol:                cfg.PoolSymbol,
+			Decimals:              uint8(cfg.PoolDecimals),
+			Owner:                 owner,
+			FeePolicy:             feePolicy,
+			FeeAddress:            feeAddress,
+			TokenRegistry:         tokenRegistry,
+			TokenLimiter:          tokenLimiter,
+			Quoter:                quoterAddr,
+			FeesDecoupled:         cfg.PoolFeesDecoupled,
+			ProtocolFeeController: pfc,
+		})
+	default:
+		_ = err
+		return nil, fmt.Errorf("unsupported contract: %s", contract)
+	}
 }
 
 func parsePrivateKey(v string) (*ecdsa.PrivateKey, common.Address, error) {

@@ -44,10 +44,10 @@ contract EthFaucet is Ownable, Initializable {
 
     receive() external payable {}
 
-    function seal(uint256 _state) public returns (uint256) {
-        if (_state >= 8) revert InvalidState();
+    function seal(uint8 _state) public returns (uint256) {
+        if (_state > maxSealState) revert InvalidState();
         if (_state & sealState != 0) revert AlreadyLocked();
-        sealState |= uint8(_state);
+        sealState |= _state;
         emit SealStateChange(sealState, registry, periodChecker);
         return sealState;
     }
@@ -141,13 +141,13 @@ contract EthFaucet is Ownable, Initializable {
     function nextTime(address _subject) public returns (uint256) {
         (bool ok, bytes memory result) = periodChecker.call(abi.encodeWithSignature("next(address)", _subject));
         if (!ok) revert PeriodBackendError();
-        return uint256(bytes32(result));
+        return abi.decode(result, (uint256));
     }
 
     function nextBalance(address _subject) public returns (uint256) {
         (bool ok, bytes memory result) = periodChecker.call(abi.encodeWithSignature("balanceThreshold()", _subject));
         if (!ok) revert PeriodBackendError();
-        return uint256(bytes32(result));
+        return abi.decode(result, (uint256));
     }
 
     function tokenAmount() public view returns (uint256) {
