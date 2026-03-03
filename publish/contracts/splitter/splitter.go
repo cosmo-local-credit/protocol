@@ -15,7 +15,7 @@ const (
 	license         = "AGPL-3.0"
 	solidityVersion = "0.8.30"
 	evmFork         = "shanghai"
-	ImplGasLimit    = 500_000
+	ImplGasLimit    = 5_000_000
 )
 
 //go:embed Splitter.bin
