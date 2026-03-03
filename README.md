@@ -25,7 +25,7 @@ Go library for programmatic deployment and management of protocol contracts usin
 
 Compiler: Solidity 0.8.34, EVM fork: osaka, optimizer: 200 runs. Deployer: `0x469723CbE3C164F818bD49E3dFa9823616282FDD`.
 
-| Contract | Address |
+| Contract | Implementation Address (v0.1.0) |
 |---|---|
 | ERC1967Factory | [0x3e302C5965954D84Ab3dac664C6152b54D7daa00](https://celoscan.io/address/0x3e302C5965954D84Ab3dac664C6152b54D7daa00) |
 | AccountsIndex | [0x80163cAfD0d03F9c7251a19430E3449bb0408f76](https://celoscan.io/address/0x80163cAfD0d03F9c7251a19430E3449bb0408f76) |
