@@ -76,10 +76,12 @@ contract AccountsIndex is Ownable, Initializable {
         if (!this.have(_account)) revert AlreadyExists();
 
         uint256 l = entryList.length - 1;
-        uint256 i = entryIndex[_account];
+        uint256 i = uint64(entryIndex[_account]);
 
         if (i < l) {
-            entryList[i] = entryList[l];
+            address last = entryList[l];
+            entryList[i] = last;
+            entryIndex[last] = (entryIndex[last] & ~uint256(type(uint64).max)) | i;
         }
 
         entryList.pop();
@@ -94,7 +96,7 @@ contract AccountsIndex is Ownable, Initializable {
         if (entryIndex[_account] == 0) revert NotFound();
         if ((entryIndex[_account] & BLOCKED_FIELD) != BLOCKED_FIELD) revert NotBlocked();
 
-        entryIndex[_account] >>= 129;
+        entryIndex[_account] &= ~BLOCKED_FIELD;
         emit AddressActive(_account, true);
         return true;
     }
@@ -104,7 +106,6 @@ contract AccountsIndex is Ownable, Initializable {
         if (entryIndex[_account] == 0) revert NotFound();
         if ((entryIndex[_account] & BLOCKED_FIELD) == BLOCKED_FIELD) revert NotActive();
 
-        entryIndex[_account] <<= 129;
         entryIndex[_account] |= BLOCKED_FIELD;
         emit AddressActive(_account, false);
         return true;

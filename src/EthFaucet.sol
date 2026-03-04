@@ -44,7 +44,7 @@ contract EthFaucet is Ownable, Initializable {
 
     receive() external payable {}
 
-    function seal(uint8 _state) public returns (uint256) {
+    function seal(uint8 _state) public onlyOwner returns (uint256) {
         if (_state > maxSealState) revert InvalidState();
         if (_state & sealState != 0) revert AlreadyLocked();
         sealState |= _state;

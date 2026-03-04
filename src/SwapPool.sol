@@ -259,7 +259,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
             if (!protocolSuccess) revert TransferFailed();
         }
 
-        uint256 poolOwnerFee = totalFee - protocolFee;
+        uint256 poolOwnerFee = totalFee > protocolFee ? totalFee - protocolFee : 0;
 
         // Transfer net amount to user
         bool success = IERC20(_outToken).transfer(msg.sender, netValue);

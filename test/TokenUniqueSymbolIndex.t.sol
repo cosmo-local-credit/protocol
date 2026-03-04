@@ -128,9 +128,10 @@ contract TokenUniqueSymbolIndexTest is Test {
     }
 
     function test_remove() public {
-        vm.prank(writer);
+        vm.startPrank(writer);
         index.add(address(tokenA));
         index.add(address(tokenB));
+        vm.stopPrank();
 
         vm.expectEmit(true, false, false, true);
         emit AddressRemoved(address(tokenA));
@@ -194,9 +195,10 @@ contract TokenUniqueSymbolIndexTest is Test {
     }
 
     function test_entry() public {
-        vm.prank(writer);
+        vm.startPrank(writer);
         index.add(address(tokenA));
         index.add(address(tokenB));
+        vm.stopPrank();
 
         assertEq(index.entry(0), address(tokenA));
         assertEq(index.entry(1), address(tokenB));

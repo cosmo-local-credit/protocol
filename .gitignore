@@ -13,3 +13,4 @@ out/
 **/node_modules
 
 publis/ge-publish
+*scan.md

@@ -53,7 +53,9 @@ contract Limiter is ILimiter, Ownable, Initializable {
     }
 
     function setLimitFor(address token, address holder, uint256 value) external onlyWriter {
-        // Ensure holder is a contract
+        // Ensure holder is a deployed contract.
+        // Note: extcodesize returns 0 during constructor execution; limits for contracts
+        // being deployed in the same transaction must be set in a subsequent transaction.
         uint256 codeSize;
         assembly {
             codeSize := extcodesize(holder)

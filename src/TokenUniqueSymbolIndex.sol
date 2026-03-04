@@ -79,6 +79,7 @@ contract TokenUniqueSymbolIndex is Ownable, Initializable {
     }
 
     function add(address _token) external returns (bool) {
+        if (msg.sender != owner() && !isWriter[msg.sender]) revert Access();
         bytes memory tokenSymbol;
         (bool ok, bytes memory r) = _token.call(abi.encodeWithSignature("symbol()"));
         if (!ok) revert();
