@@ -26,6 +26,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     error LimiterCallFailed();
     error InvalidFeeAddress();
     error InsufficientFees();
+    error InvalidRecipient();
 
     address public tokenRegistry;
     address public tokenLimiter;
@@ -215,6 +216,15 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     }
 
     function withdraw(address _outToken, address _inToken, uint256 _value) public {
+        _swap(_outToken, _inToken, _value, msg.sender);
+    }
+
+    function withdraw(address _outToken, address _inToken, uint256 _value, address _recipient) public {
+        if (_recipient == address(0)) revert InvalidRecipient();
+        _swap(_outToken, _inToken, _value, _recipient);
+    }
+
+    function _swap(address _outToken, address _inToken, uint256 _value, address _recipient) private {
         deposit(_inToken, _value);
 
         uint256 quotedValue = getQuote(_outToken, _inToken, _value);
@@ -239,7 +249,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         if (protocolFee > 0) {
             if (!IERC20(_outToken).transfer(_getProtocolRecipient(), protocolFee)) revert TransferFailed();
         }
-        if (!IERC20(_outToken).transfer(msg.sender, netValue)) revert TransferFailed();
+        if (!IERC20(_outToken).transfer(_recipient, netValue)) revert TransferFailed();
 
         if (totalFee > 0 && feeAddress != address(0)) {
             fees[_outToken] += totalFee;

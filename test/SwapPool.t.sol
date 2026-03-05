@@ -25,6 +25,7 @@ contract SwapPoolTest is Test {
     error LimitExceeded();
     error InvalidFeeAddress();
     error InsufficientFees();
+    error InvalidRecipient();
     error InvalidInitialization();
 
     SwapPool pool;
@@ -786,6 +787,56 @@ contract SwapPoolTest is Test {
         assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
         assertEq(pool.fees(address(tokenB)), 0, "pool owner gets 0");
         assertEq(netValue + protocolFee + totalFee, quotedValue);
+    }
+
+    function test_swapTo_sends_to_recipient() public {
+        feePolicy.setFee(address(tokenA), address(tokenB), 0);
+
+        address recipient = makeAddr("recipient");
+        uint256 amountIn = 100e18;
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), amountIn);
+
+        uint256 recipientBefore = tokenB.balanceOf(recipient);
+        uint256 user1Before = tokenB.balanceOf(user1);
+
+        vm.expectEmit(true, true, false, true);
+        emit Swap(user1, address(tokenA), address(tokenB), amountIn, amountIn, 0);
+
+        pool.withdraw(address(tokenB), address(tokenA), amountIn, recipient);
+        vm.stopPrank();
+
+        assertEq(tokenB.balanceOf(recipient), recipientBefore + amountIn, "recipient receives output");
+        assertEq(tokenB.balanceOf(user1), user1Before, "caller receives nothing");
+    }
+
+    function test_swapTo_with_fees() public {
+        feePolicy.setFee(address(tokenA), address(tokenB), 10000); // 1%
+
+        address recipient = makeAddr("recipient");
+        uint256 amountIn = 100e18;
+        uint256 expectedFee = (amountIn * 10000) / 1_000_000; // 1e18
+        uint256 expectedOut = amountIn - expectedFee; // 99e18
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), amountIn);
+        pool.withdraw(address(tokenB), address(tokenA), amountIn, recipient);
+        vm.stopPrank();
+
+        assertEq(tokenB.balanceOf(recipient), expectedOut, "recipient gets net amount");
+        assertEq(pool.fees(address(tokenB)), expectedFee, "fees accumulate correctly");
+    }
+
+    function test_swapTo_revertIf_zero_recipient() public {
+        uint256 amountIn = 100e18;
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), amountIn);
+
+        vm.expectRevert(InvalidRecipient.selector);
+        pool.withdraw(address(tokenB), address(tokenA), amountIn, address(0));
+        vm.stopPrank();
     }
 
     function test_protocolFee_noGaming_tinyFee() public {
