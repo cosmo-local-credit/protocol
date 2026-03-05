@@ -25,7 +25,7 @@ Go library for programmatic deployment and management of protocol contracts usin
 
 Compiler: Solidity 0.8.34, EVM fork: osaka, optimizer: 200 runs. Deployer: `0x469723CbE3C164F818bD49E3dFa9823616282FDD`.
 
-| Contract | Implementation Address (v0.2.0) |
+| Contract | Implementation Address (v0.3.0) |
 |---|---|
 | ERC1967Factory | [0x3e302C5965954D84Ab3dac664C6152b54D7daa00](https://celoscan.io/address/0x3e302C5965954D84Ab3dac664C6152b54D7daa00) |
 | AccountsIndex | [0x35113F67fd55450E625f6979dF21aDCB73E6DBb7](https://celoscan.io/address/0x35113F67fd55450E625f6979dF21aDCB73E6DBb7) |
@@ -40,7 +40,7 @@ Compiler: Solidity 0.8.34, EVM fork: osaka, optimizer: 200 runs. Deployer: `0x46
 | ProtocolFeeController | [0xFD68aFA98be59702F6450D4d073fa05d32D3014a](https://celoscan.io/address/0xFD68aFA98be59702F6450D4d073fa05d32D3014a) |
 | RelativeQuoter | [0x8854A3ABD3bA61Cd40361c3d411258D0050dbbfe](https://celoscan.io/address/0x8854A3ABD3bA61Cd40361c3d411258D0050dbbfe) |
 | Splitter | [0x396F8e22feF0e2f4F7BCA10E39B22A3B20094891](https://celoscan.io/address/0x396F8e22feF0e2f4F7BCA10E39B22A3B20094891) |
-| SwapPool | [0x0032A364B92265aA03CbB4372ad43142f10Eb60D](https://celoscan.io/address/0x0032A364B92265aA03CbB4372ad43142f10Eb60D) |
+| SwapPool | [0x106f799430a52D8cf875786346ac0202DEe1214B](https://celoscan.io/address/0x106f799430a52D8cf875786346ac0202DEe1214B) |
 | TokenUniqueSymbolIndex | [0xA2d04499e68B0B295bf0331D516DcA8A30Fc51c6](https://celoscan.io/address/0xA2d04499e68B0B295bf0331D516DcA8A30Fc51c6) |
 
 ### License and Attributions
