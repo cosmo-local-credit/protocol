@@ -686,6 +686,129 @@ contract SwapPoolTest is Test {
 
         assertEq(quote, value); // 1:1 when no quoter
     }
+
+    // Protocol fee floor tests
+    // Setup: quotedValue = 1000e18, PPM = 1_000_000, DEFAULT_FEE_PPM = 10_000 (1%)
+    // protocolFeePpm = 100_000 (10%)
+    // assumedFee (floor) = 1000e18 * 1% = 10e18
+    // protocolFee = effectiveFee * 10%
+
+    function _setupProtocolFeeTest(uint256 poolFeePpm) internal returns (address protocolRecipient) {
+        protocolRecipient = makeAddr("protocolRecipient");
+        protocolFeeController.setProtocolFee(100_000); // 10%
+        protocolFeeController.setProtocolRecipient(protocolRecipient);
+        feePolicy.setFee(address(tokenA), address(tokenB), poolFeePpm);
+        // 1:1 quote (no quoter rate set), so quotedValue == swapValue
+    }
+
+    function test_protocolFee_withPoolFeeAboveFloor() public {
+        // Pool fee = 2% > 1% floor => effectiveFee = actual (2%)
+        // Pool owner gets full 2%, protocol fee is extra on top (paid by user)
+        uint256 swapValue = 1000e18;
+        address protocolRecipient = _setupProtocolFeeTest(20_000); // 2%
+
+        uint256 quotedValue = swapValue; // 1:1
+        uint256 totalFee = (quotedValue * 20_000) / 1_000_000; // 20e18
+        uint256 protocolFee = (totalFee * 100_000) / 1_000_000; // 2e18 (10% of 2%)
+        uint256 netValue = quotedValue - totalFee - protocolFee; // 978e18
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), swapValue);
+        pool.withdraw(address(tokenB), address(tokenA), swapValue);
+        vm.stopPrank();
+
+        assertEq(tokenB.balanceOf(user1), 10000e18 + netValue, "user netValue");
+        assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
+        assertEq(pool.fees(address(tokenB)), totalFee, "pool owner gets full fee");
+        assertEq(netValue + protocolFee + totalFee, quotedValue);
+    }
+
+    function test_protocolFee_withPoolFeeAtFloor() public {
+        // Pool fee = 1% == 1% floor => effectiveFee = actual (1%)
+        uint256 swapValue = 1000e18;
+        address protocolRecipient = _setupProtocolFeeTest(10_000); // 1%
+
+        uint256 quotedValue = swapValue;
+        uint256 totalFee = (quotedValue * 10_000) / 1_000_000; // 10e18
+        uint256 protocolFee = (totalFee * 100_000) / 1_000_000; // 1e18 (10% of 1%)
+        uint256 netValue = quotedValue - totalFee - protocolFee; // 989e18
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), swapValue);
+        pool.withdraw(address(tokenB), address(tokenA), swapValue);
+        vm.stopPrank();
+
+        assertEq(tokenB.balanceOf(user1), 10000e18 + netValue, "user netValue");
+        assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
+        assertEq(pool.fees(address(tokenB)), totalFee, "pool owner gets full fee");
+        assertEq(netValue + protocolFee + totalFee, quotedValue);
+    }
+
+    function test_protocolFee_withPoolFeeBelowFloor() public {
+        // Pool fee = 0.5% < 1% floor => protocol fee based on floor (1%), pool owner still gets 0.5%
+        uint256 swapValue = 1000e18;
+        address protocolRecipient = _setupProtocolFeeTest(5_000); // 0.5%
+
+        uint256 quotedValue = swapValue;
+        uint256 totalFee = (quotedValue * 5_000) / 1_000_000; // 5e18
+        uint256 assumedFee = (quotedValue * 10_000) / 1_000_000; // 10e18 (floor)
+        uint256 protocolFee = (assumedFee * 100_000) / 1_000_000; // 1e18 (10% of 1%)
+        uint256 netValue = quotedValue - totalFee - protocolFee; // 994e18
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), swapValue);
+        pool.withdraw(address(tokenB), address(tokenA), swapValue);
+        vm.stopPrank();
+
+        assertEq(tokenB.balanceOf(user1), 10000e18 + netValue, "user netValue");
+        assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
+        assertEq(pool.fees(address(tokenB)), totalFee, "pool owner gets full fee");
+        assertEq(netValue + protocolFee + totalFee, quotedValue);
+    }
+
+    function test_protocolFee_withZeroPoolFee() public {
+        // Pool fee = 0% => floor applies, protocol fee charged to user, pool owner gets 0
+        uint256 swapValue = 1000e18;
+        address protocolRecipient = _setupProtocolFeeTest(0); // 0%
+
+        uint256 quotedValue = swapValue;
+        uint256 totalFee = 0;
+        uint256 assumedFee = (quotedValue * 10_000) / 1_000_000; // 10e18 (floor)
+        uint256 protocolFee = (assumedFee * 100_000) / 1_000_000; // 1e18
+        uint256 netValue = quotedValue - totalFee - protocolFee; // 999e18
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), swapValue);
+        pool.withdraw(address(tokenB), address(tokenA), swapValue);
+        vm.stopPrank();
+
+        assertEq(tokenB.balanceOf(user1), 10000e18 + netValue, "user netValue");
+        assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
+        assertEq(pool.fees(address(tokenB)), 0, "pool owner gets 0");
+        assertEq(netValue + protocolFee + totalFee, quotedValue);
+    }
+
+    function test_protocolFee_noGaming_tinyFee() public {
+        // Pool fee = 1 PPM => floor applies, pool owner gets 1 PPM, protocol gets floor-based fee
+        uint256 swapValue = 1000e18;
+        address protocolRecipient = _setupProtocolFeeTest(1); // 1 PPM
+
+        uint256 quotedValue = swapValue;
+        uint256 totalFee = (quotedValue * 1) / 1_000_000; // 1e15
+        uint256 assumedFee = (quotedValue * 10_000) / 1_000_000; // 10e18 (floor)
+        uint256 protocolFee = (assumedFee * 100_000) / 1_000_000; // 1e18
+        uint256 netValue = quotedValue - totalFee - protocolFee;
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), swapValue);
+        pool.withdraw(address(tokenB), address(tokenA), swapValue);
+        vm.stopPrank();
+
+        assertEq(tokenB.balanceOf(user1), 10000e18 + netValue, "user netValue");
+        assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
+        assertEq(pool.fees(address(tokenB)), totalFee, "pool owner gets full 1 PPM fee");
+        assertEq(netValue + protocolFee + totalFee, quotedValue);
+    }
 }
 
 // Mock Contracts

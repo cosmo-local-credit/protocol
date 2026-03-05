@@ -218,58 +218,50 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         deposit(_inToken, _value);
 
         uint256 quotedValue = getQuote(_outToken, _inToken, _value);
-
-        // Calculate fee on the quoted output value
         uint256 totalFee = getFee(_inToken, _outToken, quotedValue);
-        uint256 netValue = quotedValue - totalFee;
-        uint256 balance = IERC20(_outToken).balanceOf(address(this));
 
-        // If fees are decoupled, they are not part of available liquidity
-        // So we need to ensure: balance - accumulatedFees >= quotedValue
+        // Check sufficient liquidity
         if (feesDecoupled) {
-            uint256 availableLiquidity = balance > fees[_outToken] ? balance - fees[_outToken] : 0;
-            if (availableLiquidity < quotedValue) revert InsufficientBalance();
+            uint256 bal = IERC20(_outToken).balanceOf(address(this));
+            if ((bal > fees[_outToken] ? bal - fees[_outToken] : 0) < quotedValue) revert InsufficientBalance();
         } else {
-            // If fees are not decoupled, accumulated fees are part of liquidity
-            if (balance < quotedValue) revert InsufficientBalance();
+            if (IERC20(_outToken).balanceOf(address(this)) < quotedValue) revert InsufficientBalance();
         }
 
-        // Calculate protocol fee
-        IProtocolFeeController controller = IProtocolFeeController(protocolFeeController);
-        uint256 protocolFeePpm = 0;
-        address protocolRecipient = address(0);
+        // Calculate protocol fee with floor at DEFAULT_FEE_PPM (1%) of quotedValue.
+        // Pool operators cannot zero out or minimize their fee to avoid protocol fees.
+        // Protocol fee is charged on top of the pool fee — both come from the user's output.
+        // The pool owner always receives their full totalFee.
+        // Floor at DEFAULT_FEE_PPM (1%) of quotedValue prevents gaming via tiny pool fees.
+        uint256 protocolFee = _calcProtocolFee(quotedValue, totalFee);
+        uint256 netValue = quotedValue - totalFee - protocolFee;
 
-        if (protocolFeeController != address(0)) {
-            protocolFeePpm = controller.getProtocolFee();
-            protocolRecipient = controller.getProtocolFeeRecipient();
+        if (protocolFee > 0) {
+            if (!IERC20(_outToken).transfer(_getProtocolRecipient(), protocolFee)) revert TransferFailed();
         }
+        if (!IERC20(_outToken).transfer(msg.sender, netValue)) revert TransferFailed();
 
-        uint256 protocolFee = 0;
-        if (protocolFeePpm > 0 && protocolRecipient != address(0)) {
-            // If totalFee is 0, apply default 1% protocol fee
-            if (totalFee == 0) {
-                protocolFee = (DEFAULT_FEE_PPM * protocolFeePpm) / PPM;
-            } else {
-                // Protocol fee is a percentage of the total fee
-                protocolFee = (totalFee * protocolFeePpm) / PPM;
-            }
-
-            // Transfer protocol fee in real-time
-            bool protocolSuccess = IERC20(_outToken).transfer(protocolRecipient, protocolFee);
-            if (!protocolSuccess) revert TransferFailed();
-        }
-
-        uint256 poolOwnerFee = totalFee > protocolFee ? totalFee - protocolFee : 0;
-
-        // Transfer net amount to user
-        bool success = IERC20(_outToken).transfer(msg.sender, netValue);
-        if (!success) revert TransferFailed();
-
-        if (poolOwnerFee > 0 && feeAddress != address(0)) {
-            fees[_outToken] += poolOwnerFee;
+        if (totalFee > 0 && feeAddress != address(0)) {
+            fees[_outToken] += totalFee;
         }
 
         emit Swap(msg.sender, _inToken, _outToken, _value, quotedValue, totalFee);
+    }
+
+    function _getProtocolRecipient() internal view returns (address) {
+        if (protocolFeeController == address(0)) return address(0);
+        return IProtocolFeeController(protocolFeeController).getProtocolFeeRecipient();
+    }
+
+    function _calcProtocolFee(uint256 quotedValue, uint256 totalFee) internal view returns (uint256) {
+        if (protocolFeeController == address(0)) return 0;
+        IProtocolFeeController ctrl = IProtocolFeeController(protocolFeeController);
+        uint256 protocolFeePpm = ctrl.getProtocolFee();
+        address recipient = ctrl.getProtocolFeeRecipient();
+        if (protocolFeePpm == 0 || recipient == address(0)) return 0;
+        uint256 assumedFee = (quotedValue * DEFAULT_FEE_PPM) / PPM;
+        uint256 effectiveFee = totalFee >= assumedFee ? totalFee : assumedFee;
+        return (effectiveFee * protocolFeePpm) / PPM;
     }
 
     function withdraw(address _outToken) public onlyOwner returns (uint256) {
