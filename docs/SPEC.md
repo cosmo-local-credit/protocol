@@ -261,13 +261,17 @@ Price quoter using Chainlink oracle feeds.
 - `setOracle(token, oracleAddress)` — map a token to its Chainlink `AggregatorV3` feed (owner only)
 - `removeOracle(token)` — remove a token's oracle mapping (owner only)
 - `setMaxStaleness(seconds)` — set maximum age of oracle price before rejecting (default: 86400 = 1 day, owner only)
-- `valueFor(outToken, inToken, value)` — calculate output using live oracle prices
+- `setMultiplier(multiplier)` — adjust quoted rates by a factor in PPM (owner only); range `900_000` (0.9x) to `1_100_000` (1.1x); unset (`0`) or `1_000_000` means no adjustment
+- `valueFor(outToken, inToken, value)` — calculate output using live oracle prices, then apply the rate multiplier
 
 **Calculation:**
 ```
-outValue = value * inRate * 10^outTokenDecimals * 10^outOracleDecimals
-           / (outRate * 10^inTokenDecimals * 10^inOracleDecimals)
+rawOutput = value * inRate * 10^outTokenDecimals * 10^outOracleDecimals
+             / (outRate * 10^inTokenDecimals * 10^inOracleDecimals)
+outValue = rawOutput * effectiveMultiplier / 1_000_000
 ```
+where `effectiveMultiplier` is `multiplier` if set, otherwise `1_000_000` (1x — no adjustment).
+
 All four decimal adjustments are applied so feeds with different precisions (e.g. 8-decimal USD feeds vs 18-decimal Celo feeds) compose correctly.
 
 **Constraints:**
@@ -297,6 +301,9 @@ Set `baseCurrency` to the settlement token your pool treats as primary (e.g. `cU
 - `OracleUpdated(token, oracle)`
 - `OracleRemoved(token)`
 - `MaxStalenessUpdated(maxStaleness)`
+- `MultiplierUpdated(oldMultiplier, newMultiplier)`
+
+**Backward Compatibility:** Existing proxies upgraded in-place will read `multiplier` as `0` from uninitialized storage — the code treats `0` as `1_000_000` (1x), preserving current behavior with no migration needed.
 
 ---
 

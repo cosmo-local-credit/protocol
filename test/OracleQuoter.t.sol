@@ -19,6 +19,7 @@ contract OracleQuoterTest is Test {
     error InvalidBaseCurrency();
     error InvalidToken();
     error InvalidDecimals(uint8 decimals);
+    error InvalidMultiplier();
 
     OracleQuoter public quoter;
     OracleQuoter public implementation;
@@ -43,6 +44,7 @@ contract OracleQuoterTest is Test {
     event Initialized(address indexed owner, address indexed baseCurrency);
     event OracleUpdated(address indexed token, address indexed oracle);
     event OracleRemoved(address indexed token);
+    event MultiplierUpdated(uint256 oldMultiplier, uint256 newMultiplier);
 
     function setUp() public {
         implementation = new OracleQuoter();
@@ -327,6 +329,93 @@ contract OracleQuoterTest is Test {
         assertTrue(quoter.supportsInterface(0x9493f8b2));
         assertTrue(quoter.supportsInterface(0xdbb21d40));
         assertFalse(quoter.supportsInterface(0x12345678));
+    }
+
+    function test_multiplier_defaultIsZero() public view {
+        assertEq(quoter.multiplier(), 0);
+    }
+
+    function test_valueFor_withDefaultMultiplier_unchanged() public {
+        uint256 output = quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
+        assertEq(output, 2_000_000);
+    }
+
+    function test_setMultiplier() public {
+        vm.prank(owner);
+        quoter.setMultiplier(1_050_000);
+        assertEq(quoter.multiplier(), 1_050_000);
+    }
+
+    function test_setMultiplier_emitsEvent() public {
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit MultiplierUpdated(0, 1_050_000);
+        quoter.setMultiplier(1_050_000);
+    }
+
+    function test_setMultiplier_revertIf_notOwner() public {
+        vm.prank(makeAddr("notOwner"));
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        quoter.setMultiplier(1_050_000);
+    }
+
+    function test_setMultiplier_revertIf_tooLow() public {
+        vm.prank(owner);
+        vm.expectRevert(InvalidMultiplier.selector);
+        quoter.setMultiplier(899_999);
+    }
+
+    function test_setMultiplier_revertIf_tooHigh() public {
+        vm.prank(owner);
+        vm.expectRevert(InvalidMultiplier.selector);
+        quoter.setMultiplier(1_100_001);
+    }
+
+    function test_setMultiplier_boundaryMin() public {
+        vm.prank(owner);
+        quoter.setMultiplier(900_000);
+        assertEq(quoter.multiplier(), 900_000);
+    }
+
+    function test_setMultiplier_boundaryMax() public {
+        vm.prank(owner);
+        quoter.setMultiplier(1_100_000);
+        assertEq(quoter.multiplier(), 1_100_000);
+    }
+
+    function test_valueFor_withMultiplier_1_05x() public {
+        vm.prank(owner);
+        quoter.setMultiplier(1_050_000);
+        // 1 SRF = 2 MBAO, * 1.05 = 2.1 MBAO
+        uint256 output = quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
+        assertEq(output, 2_100_000);
+    }
+
+    function test_valueFor_withMultiplier_0_9x() public {
+        vm.prank(owner);
+        quoter.setMultiplier(900_000);
+        // 1 SRF = 2 MBAO, * 0.9 = 1.8 MBAO
+        uint256 output = quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
+        assertEq(output, 1_800_000);
+    }
+
+    function test_valueFor_withMultiplier_crossDecimals() public {
+        vm.prank(owner);
+        quoter.setMultiplier(1_100_000);
+        // 100 USDC (18d) -> SRF (6d) at 1:1 rate = 100 SRF, * 1.1 = 110 SRF
+        uint256 input = 100 * 10 ** 18;
+        uint256 output = quoter.valueFor(address(tokenSRF), address(tokenUSDC), input);
+        assertEq(output, 110 * 10 ** 6);
+    }
+
+    function test_setMultiplier_resetToPPM() public {
+        vm.startPrank(owner);
+        quoter.setMultiplier(1_050_000);
+        quoter.setMultiplier(1_000_000);
+        vm.stopPrank();
+        // Explicit 1_000_000 should behave like unset (0)
+        uint256 output = quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
+        assertEq(output, 2_000_000);
     }
 }
 

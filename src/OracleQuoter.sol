@@ -18,17 +18,23 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
     error InvalidBaseCurrency();
     error InvalidToken();
     error InvalidDecimals(uint8 decimals);
+    error InvalidMultiplier();
 
     uint256 private constant DEFAULT_MAX_STALENESS = 86400; // 1 day
+    uint256 private constant PPM = 1_000_000;
+    uint256 private constant MIN_MULTIPLIER = 900_000; // 0.9x
+    uint256 private constant MAX_MULTIPLIER = 1_100_000; // 1.1x
 
     mapping(address => address) public oracles;
     address public baseCurrency;
     uint256 public maxStaleness;
+    uint256 public multiplier;
 
     event Initialized(address indexed owner, address indexed baseCurrency);
     event OracleUpdated(address indexed token, address indexed oracle);
     event OracleRemoved(address indexed token);
     event MaxStalenessUpdated(uint256 maxStaleness);
+    event MultiplierUpdated(uint256 oldMultiplier, uint256 newMultiplier);
 
     constructor() {
         _disableInitializers();
@@ -45,6 +51,13 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
     function setMaxStaleness(uint256 _maxStaleness) public onlyOwner {
         maxStaleness = _maxStaleness;
         emit MaxStalenessUpdated(_maxStaleness);
+    }
+
+    function setMultiplier(uint256 _multiplier) public onlyOwner {
+        if (_multiplier < MIN_MULTIPLIER || _multiplier > MAX_MULTIPLIER) revert InvalidMultiplier();
+        uint256 oldMultiplier = multiplier;
+        multiplier = _multiplier;
+        emit MultiplierUpdated(oldMultiplier, _multiplier);
     }
 
     function setOracle(address token, address oracleAddress) public onlyOwner {
@@ -77,7 +90,9 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
         (uint256 inRate, uint8 inRateDecimals) = getOracleRate(_inToken);
         (uint256 outRate, uint8 outRateDecimals) = getOracleRate(_outToken);
 
-        return determineOutput(_value, din, dout, inRate, inRateDecimals, outRate, outRateDecimals);
+        uint256 output = determineOutput(_value, din, dout, inRate, inRateDecimals, outRate, outRateDecimals);
+        uint256 effectiveMultiplier = multiplier == 0 ? PPM : multiplier;
+        return FixedPointMathLib.fullMulDiv(output, effectiveMultiplier, PPM);
     }
 
     function getOracleRate(address token) internal view returns (uint256 rate, uint8 rateDecimals) {
