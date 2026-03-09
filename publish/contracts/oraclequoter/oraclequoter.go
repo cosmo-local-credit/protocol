@@ -15,7 +15,7 @@ const (
 	license         = "AGPL-3.0"
 	solidityVersion = "0.8.30"
 	evmFork         = "shanghai"
-	ImplGasLimit    = 1_000_000
+	ImplGasLimit    = 1_500_000
 )
 
 //go:embed OracleQuoter.bin
