@@ -13,6 +13,7 @@ This document provides technical specifications for all Sarafu Network Protocol 
 - [OracleQuoter](#oraclequoter)
 - [ProtocolFeeController](#protocolfeecontroller)
 - [DecimalQuoter](#decimalquoter)
+- [SwapRouter](#swaprouter)
 - [EthFaucet](#ethfaucet)
 - [PeriodSimple](#periodsimple)
 - [CAT](#cat)
@@ -97,8 +98,8 @@ _Queries:_
 - `isSealed(state)` - Returns true if the given seal bitmask is fully set; pass `0` to check if fully sealed
 - `getQuote(tokenOut, tokenIn, value)` - Get raw quoted output from quoter before any fees
 - `getFee(inToken, outToken, value)` - Get pool fee amount for a given quoted value
-- `getAmountOut(tokenOut, tokenIn, amountIn)` - Get net output amount after pool fee (does not include protocol fee)
-- `getAmountIn(tokenOut, tokenIn, amountOut)` - Get required input amount to receive a desired net output
+- `getAmountOut(tokenOut, tokenIn, amountIn)` - Get net output amount after pool fee and protocol fee
+- `getAmountIn(tokenOut, tokenIn, amountOut)` - Get required input amount to receive a desired net output (accounts for pool fee, protocol fee, and quoter; adds +1 wei rounding safety)
 
 **Seal States:**
 
@@ -338,6 +339,81 @@ Stateless quoter that normalises a token amount across different decimal precisi
 - `valueFor(outToken, inToken, value)` — scales `value` from `inToken` decimals to `outToken` decimals
 
 **Use case:** pools where tokens have the same real-world value but different decimal representations (e.g. 6-decimal vs 18-decimal stablecoins).
+
+---
+
+## SwapRouter
+
+Stateless multi-hop quoter for computing input/output amounts across multiple SwapPools. Does not hold funds or execute swaps — it only reports what the user should enter to achieve a specific output.
+
+**Proxy:** No (stateless, deploy once)
+
+**Struct:**
+```solidity
+struct Hop {
+    address pool;      // SwapPool address
+    address tokenIn;   // Token deposited into pool
+    address tokenOut;  // Token received from pool
+}
+```
+
+**Key Functions:**
+- `quoteExactInput(Hop[] path, uint256 amountIn) → uint256 amountOut` — Given an input amount, compute the final output after all hops
+- `quoteExactOutput(Hop[] path, uint256 amountOut) → uint256 amountIn` — Given a desired output amount, compute the required input across all hops
+
+**Errors:**
+- `EmptyPath` — `path` array is empty
+
+**How it works:**
+
+`quoteExactInput` iterates forward through the path. For each hop, it calls `pool.getAmountOut(tokenOut, tokenIn, currentAmount)` and feeds the result into the next hop:
+
+```
+Hop 0: amountOut = poolA.getAmountOut(tokenOut, tokenIn, amountIn)
+Hop 1: amountOut = poolB.getAmountOut(tokenOut, tokenIn, amountOut from hop 0)
+...
+```
+
+`quoteExactOutput` iterates backward from the last hop. For each hop, it calls `pool.getAmountIn(tokenOut, tokenIn, currentAmount)` and feeds the result into the previous hop:
+
+```
+Hop N-1: amountIn = poolB.getAmountIn(tokenOut, tokenIn, desiredAmountOut)
+Hop N-2: amountIn = poolA.getAmountIn(tokenOut, tokenIn, amountIn from hop N-1)
+...
+```
+
+**Roundtrip property:** For any desired output `X`, `quoteExactInput(path, quoteExactOutput(path, X)) >= X`. The +1 wei rounding safety in each pool's `getAmountIn` ensures the computed input always produces at least the desired output.
+
+**Usage Examples:**
+
+_Single-hop quote (USDT → HAVANA via poolA):_
+```solidity
+SwapRouter.Hop[] memory path = new SwapRouter.Hop[](1);
+path[0] = SwapRouter.Hop(poolA, usdt, havana);
+
+// How much HAVANA do I get for 100 USDT?
+uint256 amountOut = router.quoteExactInput(path, 100e6);
+
+// How much USDT do I need to get exactly 99 HAVANA?
+uint256 amountIn = router.quoteExactOutput(path, 99e6);
+```
+
+_Multi-hop quote (USDT → HAVANA → TUKTUK via poolA then poolB):_
+```solidity
+SwapRouter.Hop[] memory path = new SwapRouter.Hop[](2);
+path[0] = SwapRouter.Hop(poolA, usdt, havana);
+path[1] = SwapRouter.Hop(poolB, havana, tuktuk);
+
+// How much TUKTUK do I get for 100 USDT?
+uint256 amountOut = router.quoteExactInput(path, 100e6);
+
+// How much USDT do I need to get exactly 50 TUKTUK?
+uint256 amountIn = router.quoteExactOutput(path, 50e6);
+```
+
+_Off-chain usage (via eth_call):_
+
+Both functions are non-`view` (because `SwapPool.getAmountOut`/`getAmountIn` call the quoter which may be non-`view`), but they do not modify state. Call them via `eth_call` to get quotes without sending a transaction.
 
 ---
 

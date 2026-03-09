@@ -75,6 +75,56 @@ contract RelativeQuoter is IQuoter, Ownable, Initializable {
         return (inputValue * inExchangeRate) / outExchangeRate;
     }
 
+    // Reverse quote: given desired outToken amount, return required inToken amount
+    function reverseValueFor(address _outToken, address _inToken, uint256 _value) public returns (uint256) {
+        uint8 dout;
+        uint8 din;
+        bool r;
+        bytes memory v;
+
+        uint256 inExchangeRate = PPM;
+        uint256 outExchangeRate = PPM;
+
+        if (priceIndex[_inToken] > 0) {
+            inExchangeRate = priceIndex[_inToken];
+        }
+
+        if (priceIndex[_outToken] > 0) {
+            outExchangeRate = priceIndex[_outToken];
+        }
+
+        (r, v) = _outToken.call(abi.encodeWithSignature("decimals()"));
+        if (!r) revert TokenCallFailed();
+        dout = abi.decode(v, (uint8));
+
+        (r, v) = _inToken.call(abi.encodeWithSignature("decimals()"));
+        if (!r) revert TokenCallFailed();
+        din = abi.decode(v, (uint8));
+
+        // Reverse the rate: swap inRate and outRate (ceiling division)
+        if (din == dout) {
+            return reverseOutput(_value, inExchangeRate, outExchangeRate);
+        }
+
+        uint256 d = din > dout ? 10 ** ((din - dout)) : 10 ** ((dout - din));
+        if (din > dout) {
+            // valueFor divides by d, so reverse multiplies
+            return reverseOutput(_value * d, inExchangeRate, outExchangeRate);
+        } else {
+            // valueFor multiplies by d, so reverse divides (ceiling)
+            return (reverseOutput(_value, inExchangeRate, outExchangeRate) + d - 1) / d;
+        }
+    }
+
+    function reverseOutput(uint256 outputValue, uint256 inExchangeRate, uint256 outExchangeRate)
+        internal
+        pure
+        returns (uint256)
+    {
+        // Inverse of determineOutput: ceil(outputValue * outExchangeRate / inExchangeRate)
+        return (outputValue * outExchangeRate + inExchangeRate - 1) / inExchangeRate;
+    }
+
     // Implements EIP165
     function supportsInterface(bytes4 _sum) public pure returns (bool) {
         if (_sum == 0x01ffc9a7) {

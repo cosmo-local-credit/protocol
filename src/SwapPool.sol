@@ -191,28 +191,87 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     }
 
     // Calculate the amount of output tokens received for a given input amount
-    // Returns the net amount after all fees are deducted
+    // Returns the net amount after all fees are deducted (including protocol fee)
     function getAmountOut(address _outToken, address _inToken, uint256 _amountIn) public returns (uint256) {
         uint256 quotedValue = getQuote(_outToken, _inToken, _amountIn);
         uint256 totalFee = getFee(_inToken, _outToken, quotedValue);
-        uint256 netValue = quotedValue - totalFee;
-
-        return netValue;
+        uint256 protocolFee = _calcProtocolFee(quotedValue, totalFee);
+        return quotedValue - totalFee - protocolFee;
     }
 
     // Calculate the amount of input tokens required to receive a desired output amount
-    // Returns the input amount needed after accounting for all fees
-    function getAmountIn(address _outToken, address _inToken, uint256 _amountOut) public view returns (uint256) {
+    // Returns the input amount needed after accounting for all fees (including protocol fee)
+    function getAmountIn(address _outToken, address _inToken, uint256 _amountOut) public returns (uint256) {
         uint256 feePpm = 0;
         if (feePolicy != address(0)) {
             feePpm = IFeePolicy(feePolicy).getFee(_inToken, _outToken);
         }
 
-        if (feePpm == 0) {
-            return _amountOut;
+        uint256 protocolFeePpm = _getProtocolFeePpm();
+
+        // Reverse-calculate the quotedValue from desired net output
+        uint256 quotedValue = _reverseNetToQuoted(_amountOut, feePpm, protocolFeePpm);
+
+        // Reverse the quoter: get input amount from quoted output
+        uint256 amountIn;
+        if (quoter == address(0x0)) {
+            amountIn = quotedValue;
+        } else {
+            amountIn = IQuoter(quoter).reverseValueFor(_outToken, _inToken, quotedValue);
         }
 
-        return (_amountOut * PPM) / (PPM - feePpm);
+        // +1 wei rounding safety
+        return amountIn + 1;
+    }
+
+    // Extract protocol fee PPM, returning 0 if controller is unset or recipient is zero
+    function _getProtocolFeePpm() internal view returns (uint256) {
+        if (protocolFeeController == address(0)) return 0;
+        IProtocolFeeController ctrl = IProtocolFeeController(protocolFeeController);
+        uint256 pFeePpm = ctrl.getProtocolFee();
+        address recipient = ctrl.getProtocolFeeRecipient();
+        if (pFeePpm == 0 || recipient == address(0)) return 0;
+        return pFeePpm;
+    }
+
+    // Reverse-calculate quotedValue from desired net output amount
+    // netOutput = quotedValue - poolFee - protocolFee
+    // Uses ceiling division to ensure sufficient input
+    function _reverseNetToQuoted(
+        uint256 _netOutput,
+        uint256 _feePpm,
+        uint256 _protocolFeePpm
+    ) internal pure returns (uint256) {
+        if (_feePpm == 0 && _protocolFeePpm == 0) {
+            return _netOutput;
+        }
+
+        // The protocol fee is based on max(totalFee, assumedFee) where assumedFee uses DEFAULT_FEE_PPM
+        // Two cases based on whether pool fee >= DEFAULT_FEE_PPM (the floor)
+        //
+        // Case 1: feePpm >= DEFAULT_FEE_PPM
+        //   totalFee = quotedValue * feePpm / PPM
+        //   protocolFee = totalFee * protocolFeePpm / PPM = quotedValue * feePpm * protocolFeePpm / PPM²
+        //   netOutput = quotedValue - totalFee - protocolFee
+        //            = quotedValue * (PPM² - feePpm * PPM - feePpm * protocolFeePpm) / PPM²
+        //            = quotedValue * (PPM² - feePpm * (PPM + protocolFeePpm)) / PPM²
+        //
+        // Case 2: feePpm < DEFAULT_FEE_PPM
+        //   totalFee = quotedValue * feePpm / PPM
+        //   protocolFee = assumedFee * protocolFeePpm / PPM = quotedValue * DEFAULT_FEE_PPM * protocolFeePpm / PPM²
+        //   netOutput = quotedValue - totalFee - protocolFee
+        //            = quotedValue * (PPM² - feePpm * PPM - DEFAULT_FEE_PPM * protocolFeePpm) / PPM²
+        uint256 ppmSquared = PPM * PPM;
+        uint256 denominator;
+
+        if (_feePpm >= DEFAULT_FEE_PPM) {
+            denominator = ppmSquared - _feePpm * (PPM + _protocolFeePpm);
+        } else {
+            denominator = ppmSquared - _feePpm * PPM - DEFAULT_FEE_PPM * _protocolFeePpm;
+        }
+
+        // Ceiling division: ceil(netOutput * PPM² / denominator)
+        return (_netOutput * ppmSquared + denominator - 1) / denominator;
     }
 
     function withdraw(address _outToken, address _inToken, uint256 _value) public {

@@ -32,6 +32,7 @@ import (
 	"github.com/cosmo-local-credit/protocol/publish/contracts/relativequoter"
 	"github.com/cosmo-local-credit/protocol/publish/contracts/splitter"
 	"github.com/cosmo-local-credit/protocol/publish/contracts/swappool"
+	"github.com/cosmo-local-credit/protocol/publish/contracts/swaprouter"
 	"github.com/cosmo-local-credit/protocol/publish/contracts/tokenuniquesymbolindex"
 )
 
@@ -313,6 +314,13 @@ func runOne(ctx context.Context, d *publish.Deployer, cfg config, owner, admin, 
 			return err
 		}
 		out.DecimalQuoter = addr.Hex()
+
+	case "swaprouter":
+		addr, err := deployPlain(ctx, d, "SwapRouter", swaprouter.Bytecode(), swaprouter.GasLimit)
+		if err != nil {
+			return err
+		}
+		out.Implementations["swaprouter"] = addr.Hex()
 
 	case "accountsindex":
 		return runOneProxied(ctx, d, cfg, out, "accountsindex", "AccountsIndex", accountsindex.Bytecode(), accountsindex.ImplGasLimit, admin, func() ([]byte, error) {
@@ -619,6 +627,8 @@ func contractBytecode(contract string) ([]byte, uint64, error) {
 		return relativequoter.Bytecode(), relativequoter.ImplGasLimit, nil
 	case "splitter":
 		return splitter.Bytecode(), splitter.ImplGasLimit, nil
+	case "swaprouter":
+		return swaprouter.Bytecode(), swaprouter.GasLimit, nil
 	case "swappool":
 		return swappool.Bytecode(), swappool.ImplGasLimit, nil
 	case "tokenuniquesymbolindex", "tokenindex":
