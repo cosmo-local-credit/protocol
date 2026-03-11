@@ -31,15 +31,12 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
-        env:
-          CGO_ENABLED: "0"
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
         run: |
           ext=""
-          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
           mkdir -p dist
-          go build -ldflags="-s -w" -o "dist/ge-publish-${GOOS}-${GOARCH}${ext}" ./cmd/ge-publish
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -ldflags="-s -w" -o "dist/ge-publish-${{ matrix.goos }}-${{ matrix.goarch }}${ext}" ./cmd/ge-publish
 
       - name: Compress
         run: |
