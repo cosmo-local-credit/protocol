@@ -6,30 +6,63 @@ on:
       - "v*"
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build
-        uses: crazy-max/ghaction-xgo@v3
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          xgo_version: latest
-          go_version: 1.26.x
-          pkg: cmd/ge-publish
-          dest: dist
-          prefix: ge-publish
-          targets: linux/amd64,linux/arm64,windows/amd64,darwin/arm64,darwin/amd64
-          ldflags: -s -w
+          go-version-file: go.mod
 
-      - name: Compress dist files
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
-          for file in dist/*; do
-            if [ -f "$file" ]; then
-              zip -r "$file.zip" "$file"
-            fi
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          mkdir -p dist
+          go build -ldflags="-s -w" -o "dist/ge-publish-${GOOS}-${GOARCH}${ext}" ./cmd/ge-publish
+
+      - name: Compress
+        run: |
+          cd dist
+          for file in *; do
+            zip "${file}.zip" "$file"
           done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ge-publish-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Release
         uses: ncipollo/release-action@v1
