@@ -28,7 +28,6 @@ All contracts use the **ERC1967 proxy pattern**: an implementation contract is d
   - [14. Query Proxy Admin](#14-query-proxy-admin)
 - [Contract Reference](#contract-reference)
 - [Gas Limits](#gas-limits)
-- [Error Handling](#error-handling)
 
 For detailed contract specifications, see [SPEC.md](../../docs/SPEC.md).
 
@@ -152,6 +151,16 @@ func (d *Deployer) DeployImplementation(ctx context.Context, bytecode []byte,
 // Returns the tx hash. The proxy address must be extracted from the receipt.
 func (d *Deployer) DeployProxy(ctx context.Context, factory, implementation,
     admin common.Address, initData []byte, gasLimit uint64) (common.Hash, error)
+
+// Deploys a contract deterministically via the Arachnid CREATE2 factory.
+// Returns the tx hash and the predicted contract address.
+func (d *Deployer) DeployDeterministicViaArachnid(ctx context.Context,
+    salt common.Hash, bytecode []byte, gasLimit uint64) (DeployResult, error)
+
+// Returns the deployed bytecode at an address (useful for checking if
+// a contract is already deployed).
+func (d *Deployer) CodeAt(ctx context.Context,
+    address common.Address) ([]byte, error)
 ```
 
 ### Receipts
@@ -167,10 +176,24 @@ func (d *Deployer) WaitForReceipt(ctx context.Context,
 func ProxyAddressFromReceipt(receipt *types.Receipt) (common.Address, error)
 ```
 
+### Deterministic Addressing
+
+```go
+// Generates a CREATE2 salt from a deployer address and contract name.
+// Salt format: deployer address (20 bytes) + name (12 bytes, truncated).
+func GenerateSalt(deployer common.Address, contractName string) common.Hash
+
+// Predicts the CREATE2 address for a given deployer, salt, and init code.
+func PredictCreate2Address(deployer common.Address, salt common.Hash,
+    initCode []byte) common.Address
+```
+
 ### Constants
 
 ```go
 const ProxyGasLimit uint64 = 500_000
+
+var ArachnidCreate2Factory = common.HexToAddress("0x4e59b44847b379578588920cA78FbF26c0B4956C")
 ```
 
 ### Contract Packages
@@ -199,15 +222,23 @@ import (
     "github.com/lmittmann/w3"
 
     "github.com/cosmo-local-credit/protocol/publish"
+    "github.com/cosmo-local-credit/protocol/publish/contracts/accountsindex"
+    "github.com/cosmo-local-credit/protocol/publish/contracts/cat"
+    "github.com/cosmo-local-credit/protocol/publish/contracts/contractregistry"
     "github.com/cosmo-local-credit/protocol/publish/contracts/decimalquoter"
     "github.com/cosmo-local-credit/protocol/publish/contracts/erc1967factory"
+    "github.com/cosmo-local-credit/protocol/publish/contracts/ethfaucet"
     "github.com/cosmo-local-credit/protocol/publish/contracts/feepolicy"
     "github.com/cosmo-local-credit/protocol/publish/contracts/giftabletoken"
     "github.com/cosmo-local-credit/protocol/publish/contracts/limiter"
+    "github.com/cosmo-local-credit/protocol/publish/contracts/oraclequoter"
+    "github.com/cosmo-local-credit/protocol/publish/contracts/periodsimple"
     "github.com/cosmo-local-credit/protocol/publish/contracts/protocolfeecontroller"
     "github.com/cosmo-local-credit/protocol/publish/contracts/relativequoter"
+    "github.com/cosmo-local-credit/protocol/publish/contracts/splitter"
     "github.com/cosmo-local-credit/protocol/publish/contracts/swappool"
     "github.com/cosmo-local-credit/protocol/publish/contracts/swaprouter"
+    "github.com/cosmo-local-credit/protocol/publish/contracts/tokenuniquesymbolindex"
 )
 
 ctx := context.Background()
@@ -628,50 +659,42 @@ for _, proxy := range proxies {
 
 ### 10. Deterministic Deployment (CREATE2)
 
-To deploy a contract at a **predictable address** (same address across chains), use the Arachnid CREATE2 factory at `0x4e59b44847b379578588920cA78FbF26c0B4956C`.
+To deploy a contract at a **predictable address** (same address across chains), use `DeployDeterministicViaArachnid`. This sends bytecode to the Arachnid CREATE2 factory at `0x4e59b44847b379578588920cA78FbF26c0B4956C`.
 
-This factory accepts `bytes32 salt ++ bytecode` as calldata and deploys via CREATE2. The resulting address is:
+The resulting address is:
 
 ```
 address = keccak256(0xff ++ factory ++ salt ++ keccak256(bytecode))[12:]
 ```
 
 ```go
-var arachnidFactory = common.HexToAddress("0x4e59b44847b379578588920cA78FbF26c0B4956C")
-
 // Salt — pick any 32-byte value. Same salt + same bytecode = same address on any chain.
 salt := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000001")
 
-// Deterministic deployment of ERC1967Factory via CREATE2
-bytecode := erc1967factory.Bytecode()
+result, err := d.DeployDeterministicViaArachnid(ctx, salt, erc1967factory.Bytecode(), erc1967factory.GasLimit)
+if err != nil {
+    log.Fatal(err)
+}
 
-// The Arachnid factory expects: salt (32 bytes) ++ bytecode
-payload := append(salt.Bytes(), bytecode...)
+receipt, _ := d.WaitForReceipt(ctx, result.TxHash)
+if receipt.Status != 1 {
+    log.Fatal("deterministic deployment failed")
+}
 
-nonce, _ := /* get nonce */
-
-tx := types.NewTx(&types.DynamicFeeTx{
-    Nonce:     nonce,
-    To:        &arachnidFactory,
-    GasFeeCap: gasFeeCap,
-    GasTipCap: gasTipCap,
-    Gas:       erc1967factory.GasLimit,
-    Data:      payload,
-})
-
-// Sign and send...
+fmt.Printf("ERC1967Factory: %s\n", result.ContractAddress)
 ```
 
 To predict the address before deploying:
 
 ```go
-// CREATE2 address prediction
-func predictCreate2(deployer common.Address, salt [32]byte, initCode []byte) common.Address {
-    return crypto.CreateAddress2(deployer, salt, crypto.Keccak256(initCode))
-}
-
-predicted := predictCreate2(arachnidFactory, salt, erc1967factory.Bytecode())
+predicted := publish.PredictCreate2Address(publish.ArachnidCreate2Factory, salt, erc1967factory.Bytecode())
 fmt.Printf("ERC1967Factory will deploy to: %s\n", predicted)
+```
+
+To generate a caller-prefixed salt from a contract name:
+
+```go
+salt := publish.GenerateSalt(d.Address(), erc1967factory.Name())
 ```
 
 This gives you the **same address on every EVM chain** as long as:
@@ -813,16 +836,50 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | Package | Contract | Proxy | `initialize()` Signature |
 |---------|----------|-------|--------------------------|
 | `erc1967factory` | ERC1967Factory | No | N/A (plain deploy) |
-| `giftabletoken` | GiftableToken | Yes | `(string,string,uint8,address,uint256)` |
-| `swappool` | SwapPool | Yes | `(string,string,uint8,address,address,address,address,address,address,bool,address)` |
-| `limiter` | Limiter | Yes | `(address)` |
+| `accountsindex` | AccountsIndex | Yes | `(address)` |
+| `cat` | CAT | Yes | `(address)` |
+| `contractregistry` | ContractRegistry | Yes | `(address,bytes32[])` |
+| `ethfaucet` | EthFaucet | Yes | `(address,uint256)` |
 | `feepolicy` | FeePolicy | Yes | `(address,uint256)` |
-| `relativequoter` | RelativeQuoter | Yes | `(address)` |
+| `giftabletoken` | GiftableToken | Yes | `(string,string,uint8,address,uint256)` |
+| `limiter` | Limiter | Yes | `(address)` |
+| `oraclequoter` | OracleQuoter | Yes | `(address,address)` |
+| `periodsimple` | PeriodSimple | Yes | `(address,address)` |
 | `protocolfeecontroller` | ProtocolFeeController | Yes | `(address,uint256,address)` |
+| `relativequoter` | RelativeQuoter | Yes | `(address)` |
+| `splitter` | Splitter | Yes | `(address,address[],uint32[])` |
+| `swappool` | SwapPool | Yes | `(string,string,uint8,address,address,address,address,address,address,bool,address)` |
+| `tokenuniquesymbolindex` | TokenUniqueSymbolIndex | Yes | `(address,address[],bytes32[])` |
 | `decimalquoter` | DecimalQuoter | No | N/A (stateless, plain deploy) |
 | `swaprouter` | SwapRouter | No | N/A (stateless, plain deploy) |
 
 ### InitArgs Fields
+
+**AccountsIndex:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Owner` | `common.Address` | Owner |
+
+**CAT:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Owner` | `common.Address` | Owner |
+
+**ContractRegistry:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Owner` | `common.Address` | Owner |
+| `Identifiers` | `[][]byte` | Allowed identifier keys (encoded as bytes32) |
+
+**EthFaucet:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Owner` | `common.Address` | Owner |
+| `Amount` | `*big.Int` | ETH amount per claim (in wei) |
 
 **GiftableToken:**
 
@@ -877,6 +934,20 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | `InitialFee` | `*big.Int` | Initial protocol fee in PPM |
 | `InitialRecipient` | `common.Address` | Initial fee recipient |
 
+**OracleQuoter:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Owner` | `common.Address` | Owner |
+| `BaseCurrency` | `common.Address` | Common quote denomination (metadata only) |
+
+**PeriodSimple:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Owner` | `common.Address` | Owner |
+| `Poker` | `common.Address` | Initial poker address |
+
 **Splitter:**
 
 | Field | Type | Description |
@@ -885,6 +956,14 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | `Accounts` | `[]common.Address` | Recipient addresses (any order) |
 | `PercentAllocations` | `[]uint32` | Allocations in PPM (sum = 1_000_000) |
 
+**TokenUniqueSymbolIndex:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Owner` | `common.Address` | Owner |
+| `InitialTokens` | `[]common.Address` | Tokens to pre-register (optional) |
+| `InitialSymbols` | `[][]byte` | Symbols for initial tokens (encoded as bytes32; must match token count) |
+
 ---
 
 ## Gas Limits
@@ -892,12 +971,20 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | Constant | Value | Used For |
 |----------|-------|----------|
 | `erc1967factory.GasLimit` | 1,000,000 | Deploying the factory |
-| `giftabletoken.ImplGasLimit` | 2,000,000 | Deploying GiftableToken implementation |
-| `swappool.ImplGasLimit` | 2,000,000 | Deploying SwapPool implementation |
-| `limiter.ImplGasLimit` | 1,000,000 | Deploying Limiter implementation |
+| `accountsindex.ImplGasLimit` | 2,000,000 | Deploying AccountsIndex implementation |
+| `cat.ImplGasLimit` | 2,000,000 | Deploying CAT implementation |
+| `contractregistry.ImplGasLimit` | 2,000,000 | Deploying ContractRegistry implementation |
+| `ethfaucet.ImplGasLimit` | 2,000,000 | Deploying EthFaucet implementation |
 | `feepolicy.ImplGasLimit` | 1,000,000 | Deploying FeePolicy implementation |
-| `relativequoter.ImplGasLimit` | 1,000,000 | Deploying RelativeQuoter implementation |
+| `giftabletoken.ImplGasLimit` | 2,000,000 | Deploying GiftableToken implementation |
+| `limiter.ImplGasLimit` | 1,000,000 | Deploying Limiter implementation |
+| `oraclequoter.ImplGasLimit` | 1,500,000 | Deploying OracleQuoter implementation |
+| `periodsimple.ImplGasLimit` | 2,000,000 | Deploying PeriodSimple implementation |
 | `protocolfeecontroller.ImplGasLimit` | 1,000,000 | Deploying ProtocolFeeController implementation |
+| `relativequoter.ImplGasLimit` | 1,000,000 | Deploying RelativeQuoter implementation |
+| `splitter.ImplGasLimit` | 5,000,000 | Deploying Splitter implementation |
+| `swappool.ImplGasLimit` | 2,500,000 | Deploying SwapPool implementation |
+| `tokenuniquesymbolindex.ImplGasLimit` | 2,000,000 | Deploying TokenUniqueSymbolIndex implementation |
 | `decimalquoter.GasLimit` | 1,000,000 | Deploying DecimalQuoter |
 | `swaprouter.GasLimit` | 1,000,000 | Deploying SwapRouter |
 | `publish.ProxyGasLimit` | 500,000 | Any `deployAndCall` / `deployDeterministicAndCall` |
