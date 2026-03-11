@@ -15,7 +15,7 @@ const (
 	license         = "AGPL-3.0"
 	solidityVersion = "0.8.30"
 	evmFork         = "shanghai"
-	ImplGasLimit    = 2_000_000
+	ImplGasLimit    = 2_500_000
 )
 
 //go:embed SwapPool.bin

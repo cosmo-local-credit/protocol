@@ -26,6 +26,34 @@ contract DecimalQuoter is IQuoter {
         }
     }
 
+    function reverseValueFor(address outToken, address inToken, uint256 value)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        uint8 outDecimals = IERC20Meta(outToken).decimals();
+        uint8 inDecimals = IERC20Meta(inToken).decimals();
+
+        if (inDecimals == outDecimals) {
+            return value;
+        }
+
+        // Reverse of valueFor: swap the direction of decimal adjustment
+        // valueFor scales from inDecimals to outDecimals
+        // reverseValueFor: given outToken amount, return inToken amount (ceiling division)
+        if (inDecimals > outDecimals) {
+            uint256 diff = inDecimals - outDecimals;
+            // valueFor divides by 10**diff, so reverse multiplies
+            return value * (10 ** diff);
+        } else {
+            uint256 diff = outDecimals - inDecimals;
+            // valueFor multiplies by 10**diff, so reverse divides (ceiling)
+            uint256 scale = 10 ** diff;
+            return (value + scale - 1) / scale;
+        }
+    }
+
     // EIP165 support
     function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
         return interfaceId == 0x01ffc9a7 // ERC165

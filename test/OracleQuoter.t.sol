@@ -408,6 +408,86 @@ contract OracleQuoterTest is Test {
         assertEq(output, 110 * 10 ** 6);
     }
 
+    function test_reverseValueFor_sameDecimals() public {
+        // 1 SRF = 2 MBAO (no multiplier)
+        // Forward: 1_000_000 SRF -> 2_000_000 MBAO
+        // Reverse: want 2_000_000 MBAO, need ? SRF
+        uint256 reverseIn = quoter.reverseValueFor(address(tokenMBAO), address(tokenSRF), 2_000_000);
+        assertEq(reverseIn, 1_000_000, "reverse without multiplier");
+    }
+
+    function test_reverseValueFor_withMultiplier_1_1x() public {
+        vm.prank(owner);
+        quoter.setMultiplier(1_100_000); // 1.1x
+
+        // Forward: 1 SRF (1e6) -> 2 MBAO * 1.1 = 2.2 MBAO (2_200_000)
+        uint256 forwardOut = quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
+        assertEq(forwardOut, 2_200_000, "forward with 1.1x multiplier");
+
+        // Reverse: want 2_200_000 MBAO, should need ~1_000_000 SRF
+        uint256 reverseIn = quoter.reverseValueFor(address(tokenMBAO), address(tokenSRF), 2_200_000);
+        assertEq(reverseIn, 1_000_000, "reverse with 1.1x multiplier");
+
+        // Roundtrip: valueFor(reverseValueFor(x)) >= x
+        uint256 roundtrip = quoter.valueFor(address(tokenMBAO), address(tokenSRF), reverseIn);
+        assertGe(roundtrip, 2_200_000, "roundtrip property");
+    }
+
+    function test_reverseValueFor_withMultiplier_0_9x() public {
+        vm.prank(owner);
+        quoter.setMultiplier(900_000); // 0.9x
+
+        // Forward: 1 SRF (1e6) -> 2 MBAO * 0.9 = 1.8 MBAO (1_800_000)
+        uint256 forwardOut = quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
+        assertEq(forwardOut, 1_800_000, "forward with 0.9x multiplier");
+
+        // Reverse: want 1_800_000 MBAO, should need ~1_000_000 SRF
+        uint256 reverseIn = quoter.reverseValueFor(address(tokenMBAO), address(tokenSRF), 1_800_000);
+        assertEq(reverseIn, 1_000_000, "reverse with 0.9x multiplier");
+
+        // Roundtrip property
+        uint256 roundtrip = quoter.valueFor(address(tokenMBAO), address(tokenSRF), reverseIn);
+        assertGe(roundtrip, 1_800_000, "roundtrip property");
+    }
+
+    function test_reverseValueFor_crossDecimals_withMultiplier() public {
+        vm.prank(owner);
+        quoter.setMultiplier(1_100_000); // 1.1x
+
+        // Forward: 100 USDC (18d) -> SRF (6d) at 1:1 rate = 100 SRF, * 1.1 = 110 SRF
+        uint256 input = 100 * 10 ** 18;
+        uint256 forwardOut = quoter.valueFor(address(tokenSRF), address(tokenUSDC), input);
+        assertEq(forwardOut, 110 * 10 ** 6, "forward cross-decimals");
+
+        // Reverse: want 110 SRF (110e6), need ~100 USDC (100e18)
+        uint256 reverseIn = quoter.reverseValueFor(address(tokenSRF), address(tokenUSDC), 110 * 10 ** 6);
+        assertEq(reverseIn, 100 * 10 ** 18, "reverse cross-decimals");
+
+        // Roundtrip
+        uint256 roundtrip = quoter.valueFor(address(tokenSRF), address(tokenUSDC), reverseIn);
+        assertGe(roundtrip, 110 * 10 ** 6, "roundtrip cross-decimals");
+    }
+
+    function test_reverseValueFor_roundtrip_fuzz(uint256 amount) public {
+        amount = bound(amount, 1, 1_000_000 * 10 ** 6); // up to 1M SRF-sized units
+
+        // Without multiplier: roundtrip should hold
+        uint256 reverseIn = quoter.reverseValueFor(address(tokenMBAO), address(tokenSRF), amount);
+        uint256 roundtrip = quoter.valueFor(address(tokenMBAO), address(tokenSRF), reverseIn);
+        assertGe(roundtrip, amount, "roundtrip fuzz no multiplier");
+    }
+
+    function test_reverseValueFor_roundtrip_withMultiplier_fuzz(uint256 amount) public {
+        amount = bound(amount, 1, 1_000_000 * 10 ** 6);
+
+        vm.prank(owner);
+        quoter.setMultiplier(1_050_000); // 1.05x
+
+        uint256 reverseIn = quoter.reverseValueFor(address(tokenMBAO), address(tokenSRF), amount);
+        uint256 roundtrip = quoter.valueFor(address(tokenMBAO), address(tokenSRF), reverseIn);
+        assertGe(roundtrip, amount, "roundtrip fuzz with multiplier");
+    }
+
     function test_setMultiplier_resetToPPM() public {
         vm.startPrank(owner);
         quoter.setMultiplier(1_050_000);

@@ -78,6 +78,7 @@ Additional required flags by contract:
 |---|---|
 | `erc1967factory` | none |
 | `decimalquoter` | none |
+| `swaprouter` | none |
 | `accountsindex` | none |
 | `cat` | none |
 | `ethfaucet` | none (`--faucet-amount` optional) |
@@ -206,6 +207,7 @@ import (
     "github.com/cosmo-local-credit/protocol/publish/contracts/protocolfeecontroller"
     "github.com/cosmo-local-credit/protocol/publish/contracts/relativequoter"
     "github.com/cosmo-local-credit/protocol/publish/contracts/swappool"
+    "github.com/cosmo-local-credit/protocol/publish/contracts/swaprouter"
 )
 
 ctx := context.Background()
@@ -455,6 +457,9 @@ d.WaitForReceipt(ctx, poolImplResult.TxHash)
 decimalQuoterResult, _ := d.DeployImplementation(ctx, decimalquoter.Bytecode(), decimalquoter.GasLimit)
 d.WaitForReceipt(ctx, decimalQuoterResult.TxHash)
 
+swapRouterResult, _ := d.DeployImplementation(ctx, swaprouter.Bytecode(), swaprouter.GasLimit)
+d.WaitForReceipt(ctx, swapRouterResult.TxHash)
+
 // 3. Proxies (in correct dependency order)
 
 // FeePolicy proxy
@@ -522,6 +527,7 @@ fmt.Printf("Limiter (proxy):       %s\n", limiterAddr)
 fmt.Printf("RelativeQuoter (proxy):%s\n", quoterAddr)
 fmt.Printf("ProtocolFeeCtrl (proxy):%s\n", pfcAddr)
 fmt.Printf("DecimalQuoter:         %s\n", decimalQuoterResult.ContractAddress)
+fmt.Printf("SwapRouter:            %s\n", swapRouterResult.ContractAddress)
 fmt.Printf("GiftableToken (proxy): %s\n", tokenAddr)
 fmt.Printf("SwapPool (proxy):      %s\n", poolAddr)
 ```
@@ -814,6 +820,7 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | `relativequoter` | RelativeQuoter | Yes | `(address)` |
 | `protocolfeecontroller` | ProtocolFeeController | Yes | `(address,uint256,address)` |
 | `decimalquoter` | DecimalQuoter | No | N/A (stateless, plain deploy) |
+| `swaprouter` | SwapRouter | No | N/A (stateless, plain deploy) |
 
 ### InitArgs Fields
 
@@ -892,4 +899,5 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | `relativequoter.ImplGasLimit` | 1,000,000 | Deploying RelativeQuoter implementation |
 | `protocolfeecontroller.ImplGasLimit` | 1,000,000 | Deploying ProtocolFeeController implementation |
 | `decimalquoter.GasLimit` | 1,000,000 | Deploying DecimalQuoter |
+| `swaprouter.GasLimit` | 1,000,000 | Deploying SwapRouter |
 | `publish.ProxyGasLimit` | 500,000 | Any `deployAndCall` / `deployDeterministicAndCall` |

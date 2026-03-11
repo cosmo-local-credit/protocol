@@ -5,4 +5,8 @@ pragma solidity ^0.8.30;
 
 interface IQuoter {
     function valueFor(address outToken, address inToken, uint256 value) external returns (uint256);
+
+    // Reverse quote: given a desired output amount, return the required input amount.
+    // Must satisfy: valueFor(out, in, reverseValueFor(out, in, x)) >= x
+    function reverseValueFor(address outToken, address inToken, uint256 value) external returns (uint256);
 }

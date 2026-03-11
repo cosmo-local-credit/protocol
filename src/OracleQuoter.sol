@@ -143,6 +143,58 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
         return 10 ** uint256(decimals);
     }
 
+    // Reverse quote: given desired outToken amount, return required inToken amount
+    // Inverse of valueFor: divides by multiplier instead of multiplying, uses ceiling division
+    function reverseValueFor(address _outToken, address _inToken, uint256 _value) public view returns (uint256) {
+        uint8 dout;
+        uint8 din;
+
+        try IERC20Meta(_outToken).decimals() returns (uint8 decimals_) {
+            dout = decimals_;
+        } catch {
+            revert TokenCallFailed();
+        }
+
+        try IERC20Meta(_inToken).decimals() returns (uint8 decimals_) {
+            din = decimals_;
+        } catch {
+            revert TokenCallFailed();
+        }
+
+        (uint256 inRate, uint8 inRateDecimals) = getOracleRate(_inToken);
+        (uint256 outRate, uint8 outRateDecimals) = getOracleRate(_outToken);
+
+        uint256 output = reverseOutput(_value, din, dout, inRate, inRateDecimals, outRate, outRateDecimals);
+
+        // Reverse the multiplier: divide by it instead of multiplying
+        // valueFor applies: output * M / PPM, so reverse: ceil(value * PPM / M)
+        uint256 effectiveMultiplier = multiplier == 0 ? PPM : multiplier;
+        return FixedPointMathLib.fullMulDivUp(output, PPM, effectiveMultiplier);
+    }
+
+    function reverseOutput(
+        uint256 outputValue,
+        uint8 inTokenDecimals,
+        uint8 outTokenDecimals,
+        uint256 inRate,
+        uint8 inRateDecimals,
+        uint256 outRate,
+        uint8 outRateDecimals
+    ) internal pure returns (uint256) {
+        uint256 outScale = getScale(outTokenDecimals);
+        uint256 inScale = getScale(inTokenDecimals);
+        uint256 outRateScale = getScale(outRateDecimals);
+        uint256 inRateScale = getScale(inRateDecimals);
+
+        // Inverse of determineOutput: swap numerator and denominator
+        // determineOutput: value * (inRate * outScale * outRateScale) / (inRateScale * inScale * outRate)
+        // reverse (ceil):  value * (outRate * inScale * inRateScale) / (inRate * outScale * outRateScale)
+        return
+            FixedPointMathLib.fullMulDivUp(
+                outputValue, outRate * inScale * inRateScale, inRate * outScale * outRateScale
+            );
+    }
+
     function supportsInterface(bytes4 _sum) public pure returns (bool) {
         if (_sum == 0x01ffc9a7) {
             return true;
