@@ -12,5 +12,5 @@ out/
 
 **/node_modules
 
-publish/ge-publish
+ge-publish
 *scan.md

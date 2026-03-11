@@ -29,11 +29,11 @@ All contracts use the **ERC1967 proxy pattern**: an implementation contract is d
 - [Contract Reference](#contract-reference)
 - [Gas Limits](#gas-limits)
 
-For detailed contract specifications, see [SPEC.md](../../docs/SPEC.md).
+For detailed contract specifications, see [SPEC.md](SPEC.md).
 
 ## Prerequisites
 
-- Go 1.21+
+- Go 1.26+
 - [Foundry](https://book.getfoundry.sh/) (`forge` for building Solidity)
 - An EVM RPC endpoint
 - A funded deployer private key
@@ -41,13 +41,21 @@ For detailed contract specifications, see [SPEC.md](../../docs/SPEC.md).
 ## Installation
 
 ```bash
-go get github.com/cosmo-local-credit/protocol/publish@latest
+go get github.com/cosmo-local-credit/protocol@latest
+```
 
+This pulls the root module which includes the `publish` package and all contract bindings. Import paths:
+
+```go
+import (
+    "github.com/cosmo-local-credit/protocol/pkg/publish"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/giftabletoken"
+)
 ```
 
 ## CLI (ge-publish style)
 
-A simple CLI is available at `publish/cmd/ge-publish`.
+A simple CLI is available at `cmd/ge-publish`.
 
 It deploys contracts one-by-one with:
 - deterministic `ERC1967Factory` deployment via Arachnid CREATE2 (`0x4e59...`), unless `--factory-address` is provided,
@@ -57,7 +65,6 @@ It deploys contracts one-by-one with:
 Run one contract:
 
 ```bash
-cd publish
 go run ./cmd/ge-publish publish-one \
     --contract giftabletoken \
     --rpc-url "$RPC_URL" \
@@ -104,7 +111,6 @@ Core credentials are supported via flags or env variables:
 The `.bin` files (embedded bytecode) must be built from the Solidity source before the Go code compiles:
 
 ```bash
-cd publish
 make          # runs forge build + extracts .bin files
 go build ./...
 ```
@@ -198,7 +204,7 @@ var ArachnidCreate2Factory = common.HexToAddress("0x4e59b44847b379578588920cA78F
 
 ### Contract Packages
 
-Each contract package under `contracts/` exports:
+Each contract package under `pkg/publish/contracts/` exports:
 
 | Export | Description |
 |--------|-------------|
@@ -221,24 +227,24 @@ import (
     "github.com/ethereum/go-ethereum/crypto"
     "github.com/lmittmann/w3"
 
-    "github.com/cosmo-local-credit/protocol/publish"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/accountsindex"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/cat"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/contractregistry"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/decimalquoter"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/erc1967factory"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/ethfaucet"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/feepolicy"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/giftabletoken"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/limiter"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/oraclequoter"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/periodsimple"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/protocolfeecontroller"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/relativequoter"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/splitter"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/swappool"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/swaprouter"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/tokenuniquesymbolindex"
+    "github.com/cosmo-local-credit/protocol/pkg/publish"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/accountsindex"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/cat"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/contractregistry"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/decimalquoter"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/erc1967factory"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/ethfaucet"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/feepolicy"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/giftabletoken"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/limiter"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/oraclequoter"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/periodsimple"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/protocolfeecontroller"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/relativequoter"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/splitter"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/swappool"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/swaprouter"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/tokenuniquesymbolindex"
 )
 
 ctx := context.Background()
@@ -406,8 +412,8 @@ import (
 
     "github.com/ethereum/go-ethereum/common"
 
-    "github.com/cosmo-local-credit/protocol/publish"
-    "github.com/cosmo-local-credit/protocol/publish/contracts/splitter"
+    "github.com/cosmo-local-credit/protocol/pkg/publish"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/splitter"
 )
 
 // Assumes you already deployed ERC1967Factory at factoryAddr

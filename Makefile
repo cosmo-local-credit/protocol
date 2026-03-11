@@ -3,22 +3,22 @@ CONTRACTS := ERC1967Factory GiftableToken SwapPool Limiter FeePolicy \
 				RelativeQuoter ProtocolFeeController DecimalQuoter Splitter \
 				EthFaucet PeriodSimple TokenUniqueSymbolIndex ContractRegistry AccountsIndex CAT OracleQuoter
 
-ERC1967Factory_DIR           := publish/contracts/erc1967factory
-GiftableToken_DIR            := publish/contracts/giftabletoken
-SwapPool_DIR                 := publish/contracts/swappool
-Limiter_DIR                  := publish/contracts/limiter
-FeePolicy_DIR                := publish/contracts/feepolicy
-RelativeQuoter_DIR           := publish/contracts/relativequoter
-ProtocolFeeController_DIR    := publish/contracts/protocolfeecontroller
-DecimalQuoter_DIR            := publish/contracts/decimalquoter
-Splitter_DIR                := publish/contracts/splitter
-EthFaucet_DIR                := publish/contracts/ethfaucet
-PeriodSimple_DIR             := publish/contracts/periodsimple
-TokenUniqueSymbolIndex_DIR    := publish/contracts/tokenuniquesymbolindex
-ContractRegistry_DIR          := publish/contracts/contractregistry
-AccountsIndex_DIR            := publish/contracts/accountsindex
-CAT_DIR                     := publish/contracts/cat
-OracleQuoter_DIR            := publish/contracts/oraclequoter
+ERC1967Factory_DIR           := pkg/publish/contracts/erc1967factory
+GiftableToken_DIR            := pkg/publish/contracts/giftabletoken
+SwapPool_DIR                 := pkg/publish/contracts/swappool
+Limiter_DIR                  := pkg/publish/contracts/limiter
+FeePolicy_DIR                := pkg/publish/contracts/feepolicy
+RelativeQuoter_DIR           := pkg/publish/contracts/relativequoter
+ProtocolFeeController_DIR    := pkg/publish/contracts/protocolfeecontroller
+DecimalQuoter_DIR            := pkg/publish/contracts/decimalquoter
+Splitter_DIR                := pkg/publish/contracts/splitter
+EthFaucet_DIR                := pkg/publish/contracts/ethfaucet
+PeriodSimple_DIR             := pkg/publish/contracts/periodsimple
+TokenUniqueSymbolIndex_DIR    := pkg/publish/contracts/tokenuniquesymbolindex
+ContractRegistry_DIR          := pkg/publish/contracts/contractregistry
+AccountsIndex_DIR            := pkg/publish/contracts/accountsindex
+CAT_DIR                     := pkg/publish/contracts/cat
+OracleQuoter_DIR            := pkg/publish/contracts/oraclequoter
 
 .PHONY: all build artifacts clean test
 
