@@ -1,0 +1,38 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        uses: crazy-max/ghaction-xgo@v3
+        with:
+          xgo_version: latest
+          go_version: 1.25.x
+          pkg: publish/cmd/ge-publish
+          dest: dist
+          prefix: ge-publish
+          targets: linux/amd64,linux/arm64,windows/amd64,darwin/arm64,darwin/amd64
+          ldflags: -s -w
+
+      - name: Compress dist files
+        run: |
+          for file in dist/*; do
+            if [ -f "$file" ]; then
+              zip -r "$file.zip" "$file"
+            fi
+          done
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "dist/*.zip"
+          generateReleaseNotes: true
