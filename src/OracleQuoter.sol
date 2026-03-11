@@ -189,9 +189,10 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
         // Inverse of determineOutput: swap numerator and denominator
         // determineOutput: value * (inRate * outScale * outRateScale) / (inRateScale * inScale * outRate)
         // reverse (ceil):  value * (outRate * inScale * inRateScale) / (inRate * outScale * outRateScale)
-        return FixedPointMathLib.fullMulDivUp(
-            outputValue, outRate * inScale * inRateScale, inRate * outScale * outRateScale
-        );
+        return
+            FixedPointMathLib.fullMulDivUp(
+                outputValue, outRate * inScale * inRateScale, inRate * outScale * outRateScale
+            );
     }
 
     function supportsInterface(bytes4 _sum) public pure returns (bool) {

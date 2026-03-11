@@ -237,11 +237,11 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     // Reverse-calculate quotedValue from desired net output amount
     // netOutput = quotedValue - poolFee - protocolFee
     // Uses ceiling division to ensure sufficient input
-    function _reverseNetToQuoted(
-        uint256 _netOutput,
-        uint256 _feePpm,
-        uint256 _protocolFeePpm
-    ) internal pure returns (uint256) {
+    function _reverseNetToQuoted(uint256 _netOutput, uint256 _feePpm, uint256 _protocolFeePpm)
+        internal
+        pure
+        returns (uint256)
+    {
         if (_feePpm == 0 && _protocolFeePpm == 0) {
             return _netOutput;
         }

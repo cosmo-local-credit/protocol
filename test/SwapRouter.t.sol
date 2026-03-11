@@ -59,11 +59,35 @@ contract SwapRouterTest is Test {
 
         address poolAAddr = LibClone.clone(address(implementation));
         poolA = SwapPool(poolAAddr);
-        poolA.initialize("Pool A", "PA", 18, owner, address(feePolicyA), feeAddr, address(registryA), address(limiterA), address(quoterA), false, address(protocolCtrlA));
+        poolA.initialize(
+            "Pool A",
+            "PA",
+            18,
+            owner,
+            address(feePolicyA),
+            feeAddr,
+            address(registryA),
+            address(limiterA),
+            address(quoterA),
+            false,
+            address(protocolCtrlA)
+        );
 
         address poolBAddr = LibClone.clone(address(implementation));
         poolB = SwapPool(poolBAddr);
-        poolB.initialize("Pool B", "PB", 18, owner, address(feePolicyB), feeAddr, address(registryB), address(limiterB), address(quoterB), false, address(protocolCtrlB));
+        poolB.initialize(
+            "Pool B",
+            "PB",
+            18,
+            owner,
+            address(feePolicyB),
+            feeAddr,
+            address(registryB),
+            address(limiterB),
+            address(quoterB),
+            false,
+            address(protocolCtrlB)
+        );
 
         registryA.addToken(address(tokenUSDT));
         registryA.addToken(address(tokenHAVANA));
@@ -205,11 +229,25 @@ contract MockERC20R is IERC20 {
         _decimals = decimals_;
     }
 
-    function name() external view returns (string memory) { return _name; }
-    function symbol() external view returns (string memory) { return _symbol; }
-    function decimals() external view returns (uint8) { return _decimals; }
-    function totalSupply() external view returns (uint256) { return _totalSupply; }
-    function balanceOf(address account) external view returns (uint256) { return _balances[account]; }
+    function name() external view returns (string memory) {
+        return _name;
+    }
+
+    function symbol() external view returns (string memory) {
+        return _symbol;
+    }
+
+    function decimals() external view returns (uint8) {
+        return _decimals;
+    }
+
+    function totalSupply() external view returns (uint256) {
+        return _totalSupply;
+    }
+
+    function balanceOf(address account) external view returns (uint256) {
+        return _balances[account];
+    }
 
     function transfer(address to, uint256 amount) external returns (bool) {
         _balances[msg.sender] -= amount;
@@ -250,7 +288,9 @@ contract MockFeePolicyR is IFeePolicy {
         return fees[tokenIn][tokenOut];
     }
 
-    function isActive() external pure returns (bool) { return true; }
+    function isActive() external pure returns (bool) {
+        return true;
+    }
 }
 
 contract MockQuoterR is IQuoter {
@@ -276,8 +316,13 @@ contract MockQuoterR is IQuoter {
 contract MockTokenRegistryR {
     mapping(address => bool) private tokens;
 
-    function addToken(address token) external { tokens[token] = true; }
-    function have(address token) external view returns (bool) { return tokens[token]; }
+    function addToken(address token) external {
+        tokens[token] = true;
+    }
+
+    function have(address token) external view returns (bool) {
+        return tokens[token];
+    }
 }
 
 contract MockLimiterR is ILimiter {
@@ -296,9 +341,23 @@ contract MockProtocolFeeControllerR is IProtocolFeeController {
     uint256 private protocolFee;
     address private protocolRecipient;
 
-    function setProtocolFee(uint256 fee) external { protocolFee = fee; }
-    function setProtocolRecipient(address r) external { protocolRecipient = r; }
-    function getProtocolFee() external view returns (uint256) { return protocolFee; }
-    function getProtocolFeeRecipient() external view returns (address) { return protocolRecipient; }
-    function isActive() external pure returns (bool) { return true; }
+    function setProtocolFee(uint256 fee) external {
+        protocolFee = fee;
+    }
+
+    function setProtocolRecipient(address r) external {
+        protocolRecipient = r;
+    }
+
+    function getProtocolFee() external view returns (uint256) {
+        return protocolFee;
+    }
+
+    function getProtocolFeeRecipient() external view returns (address) {
+        return protocolRecipient;
+    }
+
+    function isActive() external pure returns (bool) {
+        return true;
+    }
 }

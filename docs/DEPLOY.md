@@ -101,6 +101,9 @@ These two contracts are not proxied and do not use the factory. Deploy them dire
 
 # DecimalQuoter — stateless, no proxy needed
 ./publish/ge-publish publish-one --contract decimalquoter $BASE
+
+# SwapRouter — stateless, no proxy needed
+./publish/ge-publish publish-one --contract swaprouter $BASE
 ```
 
 Output:
@@ -110,6 +113,7 @@ Output:
 
 ```bash
 export DECIMAL_QUOTER=0x...
+export SWAP_ROUTER=0x...
 ```
 
 ---
@@ -139,6 +143,9 @@ forge verify-contract $IMPL_TOKENUNIQUESYMBOLINDEX src/TokenUniqueSymbolIndex.so
 
 # DecimalQuoter (non-proxied)
 forge verify-contract $DECIMAL_QUOTER            src/DecimalQuoter.sol:DecimalQuoter                $VERIFY
+
+# SwapRouter (non-proxied)
+forge verify-contract $SWAP_ROUTER               src/SwapRouter.sol:SwapRouter                      $VERIFY
 
 # ERC1967Factory (from solady library)
 forge verify-contract $FACTORY \
@@ -335,6 +342,7 @@ Each proxy must be upgraded individually — there is no batch upgrade. Repeat s
 | RelativeQuoter | 1,000,000 |
 | Splitter | 500,000 |
 | DecimalQuoter (plain) | 1,000,000 |
+| SwapRouter (plain) | 500,000 |
 | ERC1967Factory (plain) | 1,000,000 |
 | Proxy deployment | 500,000 |
 

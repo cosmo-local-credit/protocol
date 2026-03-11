@@ -26,7 +26,12 @@ contract DecimalQuoter is IQuoter {
         }
     }
 
-    function reverseValueFor(address outToken, address inToken, uint256 value) external view override returns (uint256) {
+    function reverseValueFor(address outToken, address inToken, uint256 value)
+        external
+        view
+        override
+        returns (uint256)
+    {
         uint8 outDecimals = IERC20Meta(outToken).decimals();
         uint8 inDecimals = IERC20Meta(inToken).decimals();
 
