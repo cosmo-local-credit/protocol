@@ -16,11 +16,11 @@ Includes smart contracts around:
 
 ### Publish library
 
-Go library for programmatic deployment and management of protocol contracts using the ERC1967 proxy pattern. Handles implementation deployment, proxy creation, upgrades, and deterministic deployments.
+Go library for programmatic deployment of protocol contracts using the ERC1967 proxy pattern where applicable. The current package covers implementation deployment, proxy creation, receipt polling, deployed-code checks, and deterministic deployment via the Arachnid CREATE2 factory. Upgrade and admin workflows are documented as direct factory calls.
 
-* See [docs/DEPLOY](docs/DEPLOY.md) for CLI command to deploy, verify and upgrade all smart contracts.
-* See [docs/PUBLISH](docs/PUBLISH.md) for complete API reference, usage scenarios, and examples.
-* See [docs/SPEC](docs/SPEC.md) for individual smart contract spec.
+* See [docs/DEPLOY.md](docs/DEPLOY.md) for CLI commands and deployment / verification / upgrade recipes.
+* See [docs/PUBLISH.md](docs/PUBLISH.md) for the Go API reference, CLI behavior, and usage examples.
+* See [docs/SPEC.md](docs/SPEC.md) for individual smart contract spec.
 
 ### Deployments
 

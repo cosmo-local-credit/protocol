@@ -6,7 +6,7 @@ This guide covers deploying to Celo mainnet. For Alfajores testnet substitute `-
 
 ```bash
 # build the deploy tool
-cd publish && go build ./cmd/ge-publish/ && cd ..
+go build -o ./ge-publish ./cmd/ge-publish
 
 # build + extract bytecode artifacts
 make all
@@ -30,7 +30,7 @@ BASE="--rpc-url $RPC_URL --chain-id $CHAIN_ID --private-key $PRIVATE_KEY $GAS"
 The factory is deployed once per deployer key via the Arachnid CREATE2 factory. The resulting address is the same on every EVM chain as long as the same deployer key is used.
 
 ```bash
-./publish/ge-publish publish-one --contract erc1967factory $BASE
+./ge-publish publish-one --contract erc1967factory $BASE
 ```
 
 Output:
@@ -51,20 +51,20 @@ The factory address is deterministic. If you run this command again on a differe
 Implementations are plain `CREATE` contracts — no factory involved. Deploy each once. The resulting address can be reused across as many proxies as needed.
 
 ```bash
-./publish/ge-publish deploy-impl --contract accountsindex        $BASE
-./publish/ge-publish deploy-impl --contract cat                  $BASE
-./publish/ge-publish deploy-impl --contract contractregistry     $BASE
-./publish/ge-publish deploy-impl --contract ethfaucet            $BASE
-./publish/ge-publish deploy-impl --contract feepolicy            $BASE
-./publish/ge-publish deploy-impl --contract giftabletoken        $BASE
-./publish/ge-publish deploy-impl --contract limiter              $BASE
-./publish/ge-publish deploy-impl --contract oraclequoter         $BASE
-./publish/ge-publish deploy-impl --contract periodsimple         $BASE
-./publish/ge-publish deploy-impl --contract pfc                  $BASE
-./publish/ge-publish deploy-impl --contract relativequoter       $BASE
-./publish/ge-publish deploy-impl --contract splitter             $BASE
-./publish/ge-publish deploy-impl --contract swappool             $BASE
-./publish/ge-publish deploy-impl --contract tokenuniquesymbolindex $BASE
+./ge-publish deploy-impl --contract accountsindex        $BASE
+./ge-publish deploy-impl --contract cat                  $BASE
+./ge-publish deploy-impl --contract contractregistry     $BASE
+./ge-publish deploy-impl --contract ethfaucet            $BASE
+./ge-publish deploy-impl --contract feepolicy            $BASE
+./ge-publish deploy-impl --contract giftabletoken        $BASE
+./ge-publish deploy-impl --contract limiter              $BASE
+./ge-publish deploy-impl --contract oraclequoter         $BASE
+./ge-publish deploy-impl --contract periodsimple         $BASE
+./ge-publish deploy-impl --contract pfc                  $BASE
+./ge-publish deploy-impl --contract relativequoter       $BASE
+./ge-publish deploy-impl --contract splitter             $BASE
+./ge-publish deploy-impl --contract swappool             $BASE
+./ge-publish deploy-impl --contract tokenuniquesymbolindex $BASE
 ```
 
 Each command outputs:
@@ -100,15 +100,19 @@ These two contracts are not proxied and do not use the factory. Deploy them dire
 # ERC1967Factory — already done in step 1
 
 # DecimalQuoter — stateless, no proxy needed
-./publish/ge-publish publish-one --contract decimalquoter $BASE
+./ge-publish publish-one --contract decimalquoter $BASE
 
 # SwapRouter — stateless, no proxy needed
-./publish/ge-publish publish-one --contract swaprouter $BASE
+./ge-publish publish-one --contract swaprouter $BASE
 ```
 
-Output:
+Outputs:
 ```json
 { "decimal_quoter": "0x..." }
+```
+
+```json
+{ "implementations": { "swaprouter": "0x..." } }
 ```
 
 ```bash
@@ -163,19 +167,19 @@ Each proxy is an independent instance with its own storage (owner, state). Multi
 ### Contracts with no extra required args
 
 ```bash
-./publish/ge-publish deploy-proxy --contract accountsindex $BASE \
+./ge-publish deploy-proxy --contract accountsindex $BASE \
   --factory-address $FACTORY --impl-address $IMPL_ACCOUNTSINDEX --owner $OWNER
 
-./publish/ge-publish deploy-proxy --contract cat $BASE \
+./ge-publish deploy-proxy --contract cat $BASE \
   --factory-address $FACTORY --impl-address $IMPL_CAT --owner $OWNER
 
-./publish/ge-publish deploy-proxy --contract limiter $BASE \
+./ge-publish deploy-proxy --contract limiter $BASE \
   --factory-address $FACTORY --impl-address $IMPL_LIMITER --owner $OWNER
 
-./publish/ge-publish deploy-proxy --contract relativequoter $BASE \
+./ge-publish deploy-proxy --contract relativequoter $BASE \
   --factory-address $FACTORY --impl-address $IMPL_RELATIVEQUOTER --owner $OWNER
 
-./publish/ge-publish deploy-proxy --contract periodsimple $BASE \
+./ge-publish deploy-proxy --contract periodsimple $BASE \
   --factory-address $FACTORY --impl-address $IMPL_PERIODSIMPLE --owner $OWNER
   # --period-poker <addr>   optional, defaults to owner
 ```
@@ -183,7 +187,7 @@ Each proxy is an independent instance with its own storage (owner, state). Multi
 ### FeePolicy
 
 ```bash
-./publish/ge-publish deploy-proxy --contract feepolicy $BASE \
+./ge-publish deploy-proxy --contract feepolicy $BASE \
   --factory-address $FACTORY --impl-address $IMPL_FEEPOLICY --owner $OWNER \
   --fee-policy-default 5000   # 0.5% in PPM (parts per million)
 ```
@@ -191,7 +195,7 @@ Each proxy is an independent instance with its own storage (owner, state). Multi
 ### ProtocolFeeController
 
 ```bash
-./publish/ge-publish deploy-proxy --contract pfc $BASE \
+./ge-publish deploy-proxy --contract pfc $BASE \
   --factory-address $FACTORY --impl-address $IMPL_PFC --owner $OWNER \
   --protocol-fee 1000 \          # 0.1% in PPM
   --protocol-recipient $OWNER    # address that receives the protocol fee
@@ -200,7 +204,7 @@ Each proxy is an independent instance with its own storage (owner, state). Multi
 ### OracleQuoter
 
 ```bash
-./publish/ge-publish deploy-proxy --contract oraclequoter $BASE \
+./ge-publish deploy-proxy --contract oraclequoter $BASE \
   --factory-address $FACTORY --impl-address $IMPL_ORACLEQUOTER --owner $OWNER \
   --base-currency $USDC_ADDRESS  # all oracle feeds must be priced in this token
 ```
@@ -215,7 +219,7 @@ cast send $ORACLEQUOTER_PROXY \
 ### GiftableToken
 
 ```bash
-./publish/ge-publish deploy-proxy --contract giftabletoken $BASE \
+./ge-publish deploy-proxy --contract giftabletoken $BASE \
   --factory-address $FACTORY --impl-address $IMPL_GIFTABLETOKEN --owner $OWNER \
   --token-name "Sarafu" --token-symbol "SRF" --token-decimals 6
 ```
@@ -223,7 +227,7 @@ cast send $ORACLEQUOTER_PROXY \
 ### ContractRegistry
 
 ```bash
-./publish/ge-publish deploy-proxy --contract contractregistry $BASE \
+./ge-publish deploy-proxy --contract contractregistry $BASE \
   --factory-address $FACTORY --impl-address $IMPL_CONTRACTREGISTRY --owner $OWNER \
   --registry-identifiers "SwapPool,GiftableToken,Limiter"  # comma-separated
 ```
@@ -231,7 +235,7 @@ cast send $ORACLEQUOTER_PROXY \
 ### TokenUniqueSymbolIndex
 
 ```bash
-./publish/ge-publish deploy-proxy --contract tokenuniquesymbolindex $BASE \
+./ge-publish deploy-proxy --contract tokenuniquesymbolindex $BASE \
   --factory-address $FACTORY --impl-address $IMPL_TOKENUNIQUESYMBOLINDEX --owner $OWNER
   # --token-index-tokens  "0xA,0xB"   optional: pre-register tokens
   # --token-index-symbols "SRF,MBAO"  optional: must match token count
@@ -240,7 +244,7 @@ cast send $ORACLEQUOTER_PROXY \
 ### EthFaucet
 
 ```bash
-./publish/ge-publish deploy-proxy --contract ethfaucet $BASE \
+./ge-publish deploy-proxy --contract ethfaucet $BASE \
   --factory-address $FACTORY --impl-address $IMPL_ETHFAUCET --owner $OWNER \
   --faucet-amount 1000000000000000  # drip amount in wei (0.001 CELO)
 ```
@@ -250,7 +254,7 @@ cast send $ORACLEQUOTER_PROXY \
 Allocations are in PPM (parts per million) and must sum to 1,000,000.
 
 ```bash
-./publish/ge-publish deploy-proxy --contract splitter $BASE \
+./ge-publish deploy-proxy --contract splitter $BASE \
   --factory-address $FACTORY --impl-address $IMPL_SPLITTER --owner $OWNER \
   --splitter-accounts   "0xADDR1,0xADDR2" \
   --splitter-allocations "700000,300000"   # 70% / 30%
@@ -261,7 +265,7 @@ Allocations are in PPM (parts per million) and must sum to 1,000,000.
 Requires `feepolicy`, `limiter`, and `pfc` proxy addresses. `--pool-quoter` must be the quoter proxy address (either a RelativeQuoter or OracleQuoter proxy).
 
 ```bash
-./publish/ge-publish deploy-proxy --contract swappool $BASE \
+./ge-publish deploy-proxy --contract swappool $BASE \
   --factory-address $FACTORY --impl-address $IMPL_SWAPPOOL --owner $OWNER \
   --pool-name "Sarafu Pool" --pool-symbol "SRFp" --pool-decimals 6 \
   --pool-quoter              $RELATIVEQUOTER_PROXY \
@@ -282,7 +286,7 @@ Upgrading replaces the logic behind all proxies that point to an implementation,
 ### Step 1 — deploy the new implementation
 
 ```bash
-./publish/ge-publish deploy-impl --contract giftabletoken $BASE
+./ge-publish deploy-impl --contract giftabletoken $BASE
 # → {"implementations": {"giftabletoken": "0xNEW_IMPL"}}
 export NEW_IMPL=0x...
 ```
@@ -333,16 +337,16 @@ Each proxy must be upgraded individually — there is no batch upgrade. Repeat s
 | EthFaucet | 2,000,000 |
 | GiftableToken | 2,000,000 |
 | PeriodSimple | 2,000,000 |
-| SwapPool | 2,000,000 |
+| SwapPool | 2,500,000 |
 | TokenUniqueSymbolIndex | 2,000,000 |
 | FeePolicy | 1,000,000 |
 | Limiter | 1,000,000 |
-| OracleQuoter | 1,000,000 |
+| OracleQuoter | 1,500,000 |
 | ProtocolFeeController | 1,000,000 |
 | RelativeQuoter | 1,000,000 |
-| Splitter | 500,000 |
+| Splitter | 5,000,000 |
 | DecimalQuoter (plain) | 1,000,000 |
-| SwapRouter (plain) | 500,000 |
+| SwapRouter (plain) | 1,000,000 |
 | ERC1967Factory (plain) | 1,000,000 |
 | Proxy deployment | 500,000 |
 

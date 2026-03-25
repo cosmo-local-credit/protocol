@@ -2,7 +2,7 @@
 
 Go library for deploying Sarafu Network Protocol contracts programmatically.
 
-All contracts use the **ERC1967 proxy pattern**: an implementation contract is deployed once (empty constructor with `_disableInitializers()`), then one or more proxies are created via Solady's `ERC1967Factory`, each initialized independently through their `initialize()` function.
+Most stateful contracts use the **ERC1967 proxy pattern**: an implementation contract is deployed once (empty constructor with `_disableInitializers()`), then one or more proxies are created via Solady's `ERC1967Factory`, each initialized independently through their `initialize()` function. `ERC1967Factory`, `DecimalQuoter`, and `SwapRouter` are deployed as plain contracts.
 
 ## Table of Contents
 
@@ -57,10 +57,14 @@ import (
 
 A simple CLI is available at `cmd/ge-publish`.
 
-It deploys contracts one-by-one with:
-- deterministic `ERC1967Factory` deployment via Arachnid CREATE2 (`0x4e59...`), unless `--factory-address` is provided,
-- implementation deployment,
-- proxy deployment + typed `initialize()` encoding (for proxied contracts).
+Supported subcommands:
+- `publish-one`: deploy one contract end-to-end. For proxied contracts this means factory resolution, implementation deployment, proxy deployment, and typed `initialize()` encoding.
+- `deploy-impl`: deploy only the implementation or plain contract bytecode.
+- `deploy-proxy`: deploy only the proxy using an existing factory and implementation.
+
+Factory handling:
+- deterministic `ERC1967Factory` deployment via Arachnid CREATE2 (`0x4e59...`) is used automatically when a proxied deployment needs a factory and `--factory-address` is not provided,
+- existing factories can be reused via `--factory-address`.
 
 Run one contract:
 
@@ -72,7 +76,7 @@ go run ./cmd/ge-publish publish-one \
     --private-key "$PRIVATE_KEY"
 ```
 
-`publish-one` common required inputs:
+Common required inputs for all subcommands:
 - `--contract`
 - `--rpc-url`
 - `--chain-id`
@@ -98,9 +102,11 @@ Additional required flags by contract:
 | `contractregistry` | `--registry-identifiers` |
 | `splitter` | `--splitter-accounts`, `--splitter-allocations` (same length) |
 | `tokenuniquesymbolindex` | none (`--token-index-tokens`, `--token-index-symbols` optional; if both provided, lengths must match) |
-| `swappool` | `--pool-fee-policy`, `--pool-token-limiter`, `--pool-protocol-fee-controller`, `--pool-quoter` (must be a quoter proxy address in `publish-one`) |
+| `swappool` | `--pool-fee-policy`, `--pool-token-limiter`, `--pool-protocol-fee-controller`, `--pool-quoter` (must be a deployed quoter proxy address) |
 
 Deterministic factory salt is derived from `erc1967factory.Name()` and packed as caller-address (20 bytes) + name bytes (12 bytes), matching CREATE2 caller-prefix salt requirements. Use `--factory-salt-suffix` (or `FACTORY_SALT_SUFFIX`) to vary deployments while keeping the same derivation scheme.
+
+`--pool-quoter` is a free-form string flag, but for `swappool` deployments the current CLI expects a hex address for an already deployed quoter proxy. Values like `relative` or `oracle` are not accepted there.
 
 Core credentials are supported via flags or env variables:
 - `--private-key` or `PRIVATE_KEY`
@@ -208,10 +214,16 @@ Each contract package under `pkg/publish/contracts/` exports:
 
 | Export | Description |
 |--------|-------------|
+| `Name() string` | Contract name used in metadata and deterministic factory salt derivation |
+| `Version() string` | Package metadata version |
+| `License() string` | Package metadata license |
+| `SolidityVersion() string` | Package metadata Solidity version |
+| `EVMFork() string` | Package metadata EVM target |
+| `MaxGasLimit() uint64` | Convenience accessor for the package gas limit |
 | `Bytecode() []byte` | Returns the embedded implementation bytecode |
 | `EncodeInit(args InitArgs) ([]byte, error)` | ABI-encodes the `initialize()` calldata |
 | `InitArgs` | Struct with typed fields matching the Solidity `initialize()` signature |
-| `ImplGasLimit` / `GasLimit` | Suggested gas limit for deploying the implementation |
+| `ImplGasLimit` / `GasLimit` | Suggested gas limit constant for deploying the implementation or plain contract |
 
 ## Scenarios
 
@@ -220,12 +232,15 @@ Every example assumes this common setup:
 ```go
 import (
     "context"
-    "crypto/ecdsa"
+    "fmt"
+    "log"
     "math/big"
 
     "github.com/ethereum/go-ethereum/common"
+    "github.com/ethereum/go-ethereum/core/types"
     "github.com/ethereum/go-ethereum/crypto"
     "github.com/lmittmann/w3"
+    "github.com/lmittmann/w3/module/eth"
 
     "github.com/cosmo-local-credit/protocol/pkg/publish"
     "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/accountsindex"
@@ -248,12 +263,22 @@ import (
 )
 
 ctx := context.Background()
+rpcURL := "http://localhost:8545"
+chainID := int64(31337)
+
+// Raw client is only needed for the manual factory-call examples later.
+client, err := w3.Dial(rpcURL)
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
+
 privateKey, _ := crypto.HexToECDSA("06b50d6701d61f02a0c7630a6bd38d8773c2cb681c824a47ce1505069721ce67")
 
 gasFeeCap := big.NewInt(2_000_000_000)
 gasTipCap := big.NewInt(1_000_000_000)
 
-d, err := publish.NewDeployer("http://localhost:8545", 31337, privateKey, gasFeeCap, gasTipCap)
+d, err := publish.NewDeployer(rpcURL, chainID, privateKey, gasFeeCap, gasTipCap)
 if err != nil {
     log.Fatal(err)
 }
@@ -274,6 +299,14 @@ if err != nil {
     log.Fatal(err)
 }
 
+receipt, err := d.WaitForReceipt(ctx, result.TxHash)
+if err != nil {
+    log.Fatal(err)
+}
+if receipt.Status != 1 {
+    log.Fatal("factory deployment failed")
+}
+
 factoryAddr := result.ContractAddress
 fmt.Printf("ERC1967Factory: %s\n", factoryAddr)
 ```
@@ -288,6 +321,14 @@ Implementation contracts have empty constructors (`_disableInitializers()`). The
 implResult, err := d.DeployImplementation(ctx, giftabletoken.Bytecode(), giftabletoken.ImplGasLimit)
 if err != nil {
     log.Fatal(err)
+}
+
+receipt, err := d.WaitForReceipt(ctx, implResult.TxHash)
+if err != nil {
+    log.Fatal(err)
+}
+if receipt.Status != 1 {
+    log.Fatal("implementation deployment failed")
 }
 
 implAddr := implResult.ContractAddress
@@ -466,6 +507,8 @@ fmt.Printf("Splitter proxy: %s\n", splitterProxy)
 
 Deploy the complete protocol stack: factory, all implementations, then proxies.
 
+For readability this example omits repetitive error handling after the first few calls. In production, check every returned error and every receipt status exactly as shown in the earlier scenarios.
+
 ```go
 // 1. Factory
 factoryResult, _ := d.DeployImplementation(ctx, erc1967factory.Bytecode(), erc1967factory.GasLimit)
@@ -573,6 +616,8 @@ fmt.Printf("SwapPool (proxy):      %s\n", poolAddr)
 
 ### 7. Upgrade an Implementation
 
+The `publish` package does not currently expose dedicated helpers for proxy upgrades, proxy admin changes, or deterministic proxy deployment through `ERC1967Factory`. The remaining scenarios show the manual `w3` / factory-call patterns used alongside the deployment helpers above.
+
 To upgrade, deploy a **new** implementation, then point existing proxies at it. The old implementation stays on-chain (immutable) — it just stops being used.
 
 ```go
@@ -608,7 +653,12 @@ if err != nil {
     log.Fatal(err)
 }
 
-nonce, _ := /* use d.Address() and eth.Nonce */
+adminAddr := d.Address()
+
+var nonce uint64
+if err := client.CallCtx(ctx, eth.Nonce(adminAddr, nil).Returns(&nonce)); err != nil {
+    log.Fatal(err)
+}
 
 tx := types.NewTx(&types.DynamicFeeTx{
     Nonce:     nonce,
@@ -620,8 +670,23 @@ tx := types.NewTx(&types.DynamicFeeTx{
 })
 
 // Sign and send (use the admin's private key — must be the proxy's admin)
-signedTx, _ := types.SignTx(tx, types.LatestSignerForChainID(big.NewInt(42220)), privateKey)
-// ... send via client
+signedTx, err := types.SignTx(tx, types.NewLondonSigner(big.NewInt(chainID)), privateKey)
+if err != nil {
+    log.Fatal(err)
+}
+
+var txHash common.Hash
+if err := client.CallCtx(ctx, eth.SendTx(signedTx).Returns(&txHash)); err != nil {
+    log.Fatal(err)
+}
+
+receipt, err := d.WaitForReceipt(ctx, txHash)
+if err != nil {
+    log.Fatal(err)
+}
+if receipt.Status != 1 {
+    log.Fatal("upgrade failed")
+}
 ```
 
 With migration data (if the new implementation needs a re-initialization call):
@@ -634,7 +699,7 @@ var funcMigrateV2 = w3.MustNewFunc("migrateV2(uint256)", "")
 migrateData, _ := funcMigrateV2.EncodeArgs(big.NewInt(42))
 
 calldata, _ := funcUpgradeAndCall.EncodeArgs(proxyAddr, newImplAddr, migrateData)
-// ... build, sign, send tx to factoryAddr
+// Reuse the same nonce / tx / signing pattern as above, but send this calldata.
 ```
 
 > **Important:** `upgrade` and `upgradeAndCall` emit the `Upgraded(address indexed proxy, address indexed implementation)` event.
@@ -740,7 +805,10 @@ calldata, _ := funcDeployDeterministicAndCall.EncodeArgs(
     initData,  
 )
 
-nonce, _ := /* get nonce */
+var nonce uint64
+if err := client.CallCtx(ctx, eth.Nonce(admin, nil).Returns(&nonce)); err != nil {
+    log.Fatal(err)
+}
 
 tx := types.NewTx(&types.DynamicFeeTx{
     Nonce:     nonce,
@@ -751,9 +819,21 @@ tx := types.NewTx(&types.DynamicFeeTx{
     Data:      calldata,
 })
 
-// Sign, send, wait for receipt...
+signedTx, err := types.SignTx(tx, types.NewLondonSigner(big.NewInt(chainID)), privateKey)
+if err != nil {
+    log.Fatal(err)
+}
+
+var txHash common.Hash
+if err := client.CallCtx(ctx, eth.SendTx(signedTx).Returns(&txHash)); err != nil {
+    log.Fatal(err)
+}
+
 // The proxy address comes from the receipt's Deployed event (same as non-deterministic)
-receipt, _ := d.WaitForReceipt(ctx, txHash)
+receipt, err := d.WaitForReceipt(ctx, txHash)
+if err != nil {
+    log.Fatal(err)
+}
 proxyAddr, _ := publish.ProxyAddressFromReceipt(receipt)
 ```
 
@@ -781,12 +861,12 @@ var funcPredictAddress = w3.MustNewFunc(
     "predictDeterministicAddress(bytes32)", "address",
 )
 
-// Encode the call
-calldata, _ := funcPredictAddress.EncodeArgs(salt)
-
 // Call (read-only, no tx needed)
 var predicted common.Address
 err := client.CallCtx(ctx, eth.CallFunc(factoryAddr, funcPredictAddress, salt).Returns(&predicted))
+if err != nil {
+    log.Fatal(err)
+}
 
 fmt.Printf("Proxy will be at: %s\n", predicted)
 ```
@@ -798,6 +878,9 @@ var funcInitCodeHash = w3.MustNewFunc("initCodeHash()", "bytes32")
 
 var codeHash common.Hash
 err := client.CallCtx(ctx, eth.CallFunc(factoryAddr, funcInitCodeHash).Returns(&codeHash))
+if err != nil {
+    log.Fatal(err)
+}
 
 // CREATE2 prediction: keccak256(0xff ++ factory ++ salt ++ initCodeHash)[12:]
 predicted := crypto.CreateAddress2(factoryAddr, salt, codeHash.Bytes())
@@ -813,7 +896,10 @@ The admin is the only account that can upgrade a proxy or change its admin. Tran
 var funcChangeAdmin = w3.MustNewFunc("changeAdmin(address,address)", "")
 
 newAdmin := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
-calldata, _ := funcChangeAdmin.EncodeArgs(proxyAddr, newAdmin)
+calldata, err := funcChangeAdmin.EncodeArgs(proxyAddr, newAdmin)
+if err != nil {
+    log.Fatal(err)
+}
 
 // Build and send tx to factoryAddr (must be signed by current admin)
 ```
@@ -831,6 +917,9 @@ var funcAdminOf = w3.MustNewFunc("adminOf(address)", "address")
 
 var currentAdmin common.Address
 err := client.CallCtx(ctx, eth.CallFunc(factoryAddr, funcAdminOf, proxyAddr).Returns(&currentAdmin))
+if err != nil {
+    log.Fatal(err)
+}
 
 fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 ```
