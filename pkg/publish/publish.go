@@ -25,6 +25,9 @@ var (
 	funcDeployAndCall = w3.MustNewFunc(
 		"deployAndCall(address,address,bytes)", "address",
 	)
+	funcDeployDeterministicAndCall = w3.MustNewFunc(
+		"deployDeterministicAndCall(address,address,bytes32,bytes)", "address",
+	)
 	eventDeployed = w3.MustNewEvent(
 		"Deployed(address indexed,address indexed,address indexed)",
 	)
@@ -125,10 +128,10 @@ func (d *Deployer) DeployImplementation(ctx context.Context, bytecode []byte, ga
 	}, nil
 }
 
-func (d *Deployer) DeployProxy(ctx context.Context, factory, implementation, admin common.Address, initData []byte, gasLimit uint64) (common.Hash, error) {
-	calldata, err := funcDeployAndCall.EncodeArgs(implementation, admin, initData)
+func (d *Deployer) DeployProxy(ctx context.Context, factory, implementation, admin common.Address, salt common.Hash, initData []byte, gasLimit uint64) (common.Hash, error) {
+	calldata, err := funcDeployDeterministicAndCall.EncodeArgs(implementation, admin, salt, initData)
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("encode deployAndCall: %w", err)
+		return common.Hash{}, fmt.Errorf("encode deployDeterministicAndCall: %w", err)
 	}
 
 	nonce, err := d.getNonce(ctx)

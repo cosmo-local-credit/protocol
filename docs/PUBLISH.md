@@ -2,7 +2,7 @@
 
 Go library for deploying Sarafu Network Protocol contracts programmatically.
 
-Most stateful contracts use the **ERC1967 proxy pattern**: an implementation contract is deployed once (empty constructor with `_disableInitializers()`), then one or more proxies are created via Solady's `ERC1967Factory`, each initialized independently through their `initialize()` function. `ERC1967Factory`, `DecimalQuoter`, and `SwapRouter` are deployed as plain contracts.
+Most stateful contracts use the **ERC1967 proxy pattern**: an implementation contract is deployed once (empty constructor with `_disableInitializers()`), then one or more proxies are created via Solady's `ERC1967Factory`, each initialized independently through their `initialize()` function. `ERC1967Factory`, `DecimalQuoter`, `SwapRouter`, and `RescueVault` are deployed as plain contracts.
 
 ## Table of Contents
 
@@ -89,6 +89,7 @@ Additional required flags by contract:
 | `erc1967factory` | none |
 | `decimalquoter` | none |
 | `swaprouter` | none |
+| `rescuevault` | none (`--admin` optional; defaults to deployer / owner) |
 | `accountsindex` | none |
 | `cat` | none |
 | `ethfaucet` | none (`--faucet-amount` optional) |
@@ -107,6 +108,8 @@ Additional required flags by contract:
 Deterministic factory salt is derived from `erc1967factory.Name()` and packed as caller-address (20 bytes) + name bytes (12 bytes), matching CREATE2 caller-prefix salt requirements. Use `--factory-salt-suffix` (or `FACTORY_SALT_SUFFIX`) to vary deployments while keeping the same derivation scheme.
 
 `--pool-quoter` is a free-form string flag, but for `swappool` deployments the current CLI expects a hex address for an already deployed quoter proxy. Values like `relative` or `oracle` are not accepted there.
+
+`rescuevault` is always deployed directly with `CREATE` (no factory/proxy). Its CREATE address is determined by the deployer address and nonce; `--admin` only changes the constructor argument that controls who may sweep assets.
 
 Core credentials are supported via flags or env variables:
 - `--private-key` or `PRIVATE_KEY`
@@ -223,6 +226,7 @@ Each contract package under `pkg/publish/contracts/` exports:
 | `Bytecode() []byte` | Returns the embedded implementation bytecode |
 | `EncodeInit(args InitArgs) ([]byte, error)` | ABI-encodes the `initialize()` calldata |
 | `InitArgs` | Struct with typed fields matching the Solidity `initialize()` signature |
+| `ConstructorArgs` / `InitCode(args)` | Present on constructor-based plain contracts such as `rescuevault` |
 | `ImplGasLimit` / `GasLimit` | Suggested gas limit constant for deploying the implementation or plain contract |
 
 ## Scenarios
@@ -256,6 +260,7 @@ import (
     "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/periodsimple"
     "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/protocolfeecontroller"
     "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/relativequoter"
+    "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/rescuevault"
     "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/splitter"
     "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/swappool"
     "github.com/cosmo-local-credit/protocol/pkg/publish/contracts/swaprouter"
@@ -947,8 +952,15 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | `tokenuniquesymbolindex` | TokenUniqueSymbolIndex | Yes | `(address,address[],bytes32[])` |
 | `decimalquoter` | DecimalQuoter | No | N/A (stateless, plain deploy) |
 | `swaprouter` | SwapRouter | No | N/A (stateless, plain deploy) |
+| `rescuevault` | RescueVault | No | Constructor `(address admin)` |
 
-### InitArgs Fields
+### InitArgs / Constructor Fields
+
+**RescueVault:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Admin` | `common.Address` | Sole address allowed to sweep ETH, ERC20, ERC721, and ERC1155 balances |
 
 **AccountsIndex:**
 
@@ -1082,4 +1094,5 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | `tokenuniquesymbolindex.ImplGasLimit` | 2,000,000 | Deploying TokenUniqueSymbolIndex implementation |
 | `decimalquoter.GasLimit` | 1,000,000 | Deploying DecimalQuoter |
 | `swaprouter.GasLimit` | 1,000,000 | Deploying SwapRouter |
+| `rescuevault.GasLimit` | 1,000,000 | Deploying RescueVault |
 | `publish.ProxyGasLimit` | 500,000 | Any `deployAndCall` / `deployDeterministicAndCall` |

@@ -94,7 +94,7 @@ export IMPL_TOKENUNIQUESYMBOLINDEX=0x...
 
 ## 3. Non-Implementation Contracts
 
-These two contracts are not proxied and do not use the factory. Deploy them directly:
+These contracts are not proxied and do not use the factory. Deploy them directly:
 
 ```bash
 # ERC1967Factory — already done in step 1
@@ -104,6 +104,10 @@ These two contracts are not proxied and do not use the factory. Deploy them dire
 
 # SwapRouter — stateless, no proxy needed
 ./ge-publish publish-one --contract swaprouter $BASE
+
+# RescueVault — nonce/address rescue contract, no proxy needed
+# The CREATE address is controlled by the deployer nonce; --admin controls sweep permission.
+./ge-publish publish-one --contract rescuevault $BASE --admin $OWNER
 ```
 
 Outputs:
@@ -115,9 +119,14 @@ Outputs:
 { "implementations": { "swaprouter": "0x..." } }
 ```
 
+```json
+{ "implementations": { "rescuevault": "0x..." } }
+```
+
 ```bash
 export DECIMAL_QUOTER=0x...
 export SWAP_ROUTER=0x...
+export RESCUE_VAULT=0x...
 ```
 
 ---
@@ -144,6 +153,10 @@ forge verify-contract $IMPL_RELATIVEQUOTER       src/RelativeQuoter.sol:Relative
 forge verify-contract $IMPL_SPLITTER             src/Splitter.sol:Splitter                          $VERIFY
 forge verify-contract $IMPL_SWAPPOOL             src/SwapPool.sol:SwapPool                          $VERIFY
 forge verify-contract $IMPL_TOKENUNIQUESYMBOLINDEX src/TokenUniqueSymbolIndex.sol:TokenUniqueSymbolIndex $VERIFY
+
+# RescueVault (non-proxied, constructor arg is admin)
+forge verify-contract $RESCUE_VAULT src/RescueVault.sol:RescueVault \
+  --constructor-args $(cast abi-encode "constructor(address)" $OWNER) $VERIFY
 
 # DecimalQuoter (non-proxied)
 forge verify-contract $DECIMAL_QUOTER            src/DecimalQuoter.sol:DecimalQuoter                $VERIFY
