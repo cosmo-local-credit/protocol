@@ -20,6 +20,34 @@ This document provides technical specifications for all Sarafu Network Protocol 
 - [TokenUniqueSymbolIndex](#tokenuniquesymbolindex)
 - [ContractRegistry](#contractregistry)
 - [AccountsIndex](#accountsindex)
+- [RescueVault](#rescuevault)
+
+---
+
+## RescueVault
+
+Plain CREATE-deployed recovery vault for funds accidentally sent to a future contract address.
+
+**Proxy:** No
+
+**Constructor:**
+- `constructor(admin)` — sets the sole address allowed to sweep assets. The CREATE address is still determined only by deployer address and nonce.
+
+**Key Functions:**
+- `sweepETH(to)` — sends the full native ETH balance to `to`
+- `sweepERC20(token, to)` / `sweepERC20s(tokens, to)` — sends the full ERC20 balance for each specified token
+- `sweepERC721(token, tokenId, to)` / `sweepERC721s(token, tokenIds, to)` — transfers specified ERC721 token IDs
+- `sweepERC1155(token, id, to)` / `sweepERC1155Batch(token, ids, to)` — transfers the full ERC1155 balance for each specified ID
+
+**Behaviour:**
+- Only `admin` may sweep assets
+- The contract accepts ETH via `receive()` and payable `fallback()`
+- It implements ERC721 and ERC1155 receiver hooks so NFTs can be sent with `safeTransferFrom`
+- Assets are not enumerable on-chain; callers must provide token contract addresses and NFT IDs to sweep
+
+**Errors:**
+- `Unauthorized` - caller is not `admin`
+- `ZeroAddress` - constructor admin or sweep recipient is zero
 
 ---
 
