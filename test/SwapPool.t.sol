@@ -211,7 +211,7 @@ contract SwapPoolTest is Test {
         uint256 balanceBefore = tokenB.balanceOf(user1);
 
         vm.expectEmit(true, true, false, true);
-        emit Swap(user1, address(tokenA), address(tokenB), amountIn, amountIn, expectedFee);
+        emit Swap(user1, address(tokenA), address(tokenB), amountIn, expectedOut, expectedFee);
 
         pool.withdraw(address(tokenB), address(tokenA), amountIn);
         vm.stopPrank();
@@ -930,6 +930,167 @@ contract SwapPoolTest is Test {
         assertEq(pool.fees(address(tokenB)), totalFee, "pool owner gets full 1 PPM fee");
         assertEq(netValue + protocolFee + totalFee, quotedValue);
     }
+
+    // ------------------------------------------------------------------
+    // C-1: a swap where tokenIn == tokenOut is never a swap
+    // ------------------------------------------------------------------
+
+    function test_swap_revertIf_sameToken() public {
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), 1000e18);
+
+        vm.expectRevert(SwapPool.InvalidToken.selector);
+        pool.withdraw(address(tokenA), address(tokenA), 1000e18);
+
+        vm.expectRevert(SwapPool.InvalidToken.selector);
+        pool.withdraw(address(tokenA), address(tokenA), 1000e18, user2);
+
+        vm.expectRevert(SwapPool.InvalidToken.selector);
+        pool.withdraw(address(tokenA), address(tokenA), 1000e18, user2, 0, type(uint256).max);
+        vm.stopPrank();
+
+        assertEq(tokenA.balanceOf(user1), 10000e18, "no input was consumed");
+    }
+
+    // ------------------------------------------------------------------
+    // C-2: swaps are priced on what the pool received, not what was asked
+    // ------------------------------------------------------------------
+
+    function test_deposit_creditsAmountReceived_notRequested() public {
+        MockFeeOnTransferERC20 fot = new MockFeeOnTransferERC20(1000); // 10%
+        tokenRegistry.addToken(address(fot));
+        limiter.setLimit(address(fot), address(pool), type(uint256).max);
+        fot.mint(user1, 1000e18);
+
+        vm.startPrank(user1);
+        fot.approve(address(pool), 1000e18);
+
+        vm.expectEmit(true, true, false, true);
+        emit Deposit(user1, address(fot), 900e18);
+        uint256 received = pool.deposit(address(fot), 1000e18);
+        vm.stopPrank();
+
+        assertEq(received, 900e18, "deposit returns the measured delta");
+        assertEq(fot.balanceOf(address(pool)), 900e18);
+    }
+
+    function test_swap_feeOnTransferToken_doesNotLeakLiquidity() public {
+        MockFeeOnTransferERC20 fot = new MockFeeOnTransferERC20(1000); // 10%
+        tokenRegistry.addToken(address(fot));
+        limiter.setLimit(address(fot), address(pool), type(uint256).max);
+        fot.mint(user1, 1000e18);
+        feePolicy.setFee(address(fot), address(tokenB), 10_000); // 1%
+
+        vm.startPrank(user1);
+        fot.approve(address(pool), 1000e18);
+        uint256 out = pool.withdraw(address(tokenB), address(fot), 1000e18);
+        vm.stopPrank();
+
+        // Pool banked 900, so the quote is on 900 and the payout is 900 - 1%.
+        assertEq(fot.balanceOf(address(pool)), 900e18, "pool banked 900");
+        assertEq(out, 891e18, "payout is priced on the 900 received");
+        assertLe(out, fot.balanceOf(address(pool)), "the pool never pays out more than it took in");
+    }
+
+    function test_swap_revertIf_tokenDeliversNothing() public {
+        MockLyingERC20 fake = new MockLyingERC20();
+        tokenRegistry.addToken(address(fake));
+        limiter.setLimit(address(fake), address(pool), type(uint256).max);
+
+        vm.prank(user1);
+        vm.expectRevert(TransferFailed.selector);
+        pool.withdraw(address(tokenB), address(fake), 50000e18);
+
+        assertEq(tokenB.balanceOf(address(pool)), 50000e18, "pool untouched");
+    }
+
+    function test_deposit_revertIf_tokenDeliversNothing() public {
+        MockLyingERC20 fake = new MockLyingERC20();
+        tokenRegistry.addToken(address(fake));
+        limiter.setLimit(address(fake), address(pool), type(uint256).max);
+
+        vm.prank(user1);
+        vm.expectRevert(TransferFailed.selector);
+        pool.deposit(address(fake), 1000e18);
+    }
+
+    // ------------------------------------------------------------------
+    // H-1: bounded swap — minAmountOut and deadline
+    // ------------------------------------------------------------------
+
+    function test_boundedSwap_success() public {
+        feePolicy.setFee(address(tokenA), address(tokenB), 10_000); // 1%
+        uint256 amountIn = 100e18;
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), amountIn);
+        uint256 out = pool.withdraw(address(tokenB), address(tokenA), amountIn, user2, 99e18, block.timestamp + 1);
+        vm.stopPrank();
+
+        assertEq(out, 99e18);
+        assertEq(tokenB.balanceOf(user2), 10000e18 + 99e18);
+    }
+
+    function test_boundedSwap_revertIf_outputBelowMinimum() public {
+        uint256 amountIn = 100e18;
+        uint256 quoted = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
+        assertEq(quoted, 100e18, "user sees 100 when signing");
+
+        // Price moves against the caller between quoting and execution.
+        feePolicy.setFee(address(tokenA), address(tokenB), 900_000); // 90%
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), amountIn);
+        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        pool.withdraw(address(tokenB), address(tokenA), amountIn, user1, quoted, block.timestamp + 1);
+        vm.stopPrank();
+
+        assertEq(tokenA.balanceOf(user1), 10000e18, "the whole swap rolled back");
+        assertEq(tokenB.balanceOf(user1), 10000e18);
+    }
+
+    function test_boundedSwap_revertIf_deadlinePassed() public {
+        vm.warp(1000);
+        uint256 amountIn = 100e18;
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), amountIn);
+        vm.expectRevert(SwapPool.Expired.selector);
+        pool.withdraw(address(tokenB), address(tokenA), amountIn, user1, 0, block.timestamp - 1);
+        vm.stopPrank();
+
+        assertEq(tokenA.balanceOf(user1), 10000e18, "no input was consumed");
+    }
+
+    function test_boundedSwap_deadlineIsInclusive() public {
+        vm.warp(1000);
+        uint256 amountIn = 100e18;
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), amountIn);
+        pool.withdraw(address(tokenB), address(tokenA), amountIn, user1, 0, block.timestamp);
+        vm.stopPrank();
+
+        assertEq(tokenB.balanceOf(user1), 10000e18 + 100e18);
+    }
+
+    function test_boundedSwap_revertIf_zeroRecipient() public {
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), 100e18);
+        vm.expectRevert(InvalidRecipient.selector);
+        pool.withdraw(address(tokenB), address(tokenA), 100e18, address(0), 0, type(uint256).max);
+        vm.stopPrank();
+    }
+
+    function test_unboundedSwap_returnsNetValue() public {
+        feePolicy.setFee(address(tokenA), address(tokenB), 10_000); // 1%
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), 200e18);
+        assertEq(pool.withdraw(address(tokenB), address(tokenA), 100e18), 99e18);
+        assertEq(pool.withdraw(address(tokenB), address(tokenA), 100e18, user2), 99e18);
+        vm.stopPrank();
+    }
 }
 
 // Mock Contracts
@@ -994,6 +1155,110 @@ contract MockERC20 is IERC20 {
     function mint(address to, uint256 amount) external {
         _balances[to] += amount;
         _totalSupply += amount;
+    }
+}
+
+// Burns a fraction of every transfer, so the receiver banks less than was sent
+contract MockFeeOnTransferERC20 is IERC20 {
+    uint256 public immutable feeBps;
+    uint256 private _totalSupply;
+
+    mapping(address => uint256) private _balances;
+    mapping(address => mapping(address => uint256)) private _allowances;
+
+    constructor(uint256 feeBps_) {
+        feeBps = feeBps_;
+    }
+
+    function name() external pure returns (string memory) {
+        return "Fee On Transfer";
+    }
+
+    function symbol() external pure returns (string memory) {
+        return "FOT";
+    }
+
+    function decimals() external pure returns (uint8) {
+        return 18;
+    }
+
+    function totalSupply() external view returns (uint256) {
+        return _totalSupply;
+    }
+
+    function balanceOf(address account) external view returns (uint256) {
+        return _balances[account];
+    }
+
+    function allowance(address owner, address spender) external view returns (uint256) {
+        return _allowances[owner][spender];
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        _allowances[msg.sender][spender] = amount;
+        return true;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        _move(msg.sender, to, amount);
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        _allowances[from][msg.sender] -= amount;
+        _move(from, to, amount);
+        return true;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _balances[to] += amount;
+        _totalSupply += amount;
+    }
+
+    function _move(address from, address to, uint256 amount) private {
+        uint256 burned = (amount * feeBps) / 10_000;
+        _balances[from] -= amount;
+        _balances[to] += amount - burned;
+        _totalSupply -= burned;
+    }
+}
+
+// Reports success from transferFrom without moving anything
+contract MockLyingERC20 is IERC20 {
+    function name() external pure returns (string memory) {
+        return "Lying";
+    }
+
+    function symbol() external pure returns (string memory) {
+        return "LIE";
+    }
+
+    function decimals() external pure returns (uint8) {
+        return 18;
+    }
+
+    function totalSupply() external pure returns (uint256) {
+        return 0;
+    }
+
+    function balanceOf(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function allowance(address, address) external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    function approve(address, uint256) external pure returns (bool) {
+        return true;
+    }
+
+    function transfer(address, uint256) external pure returns (bool) {
+        return true;
+    }
+
+    function transferFrom(address, address, uint256) external pure returns (bool) {
+        return true;
     }
 }
 

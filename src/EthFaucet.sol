@@ -16,6 +16,7 @@ contract EthFaucet is Ownable, Initializable {
     error PeriodBackend();
     error RegistryBackend();
     error PeriodBackendError();
+    error InvalidAddress();
 
     address public registry;
     address public periodChecker;
@@ -47,6 +48,9 @@ contract EthFaucet is Ownable, Initializable {
     function seal(uint8 _state) public onlyOwner returns (uint256) {
         if (_state > maxSealState) revert InvalidState();
         if (_state & sealState != 0) revert AlreadyLocked();
+        if (_state & REGISTRY_STATE != 0 && registry == address(0)) revert InvalidState();
+        if (_state & PERIODCHECKER_STATE != 0 && periodChecker == address(0)) revert InvalidState();
+        if (_state & VALUE_STATE != 0 && amount == 0) revert InvalidState();
         sealState |= _state;
         emit SealStateChange(sealState, registry, periodChecker);
         return sealState;
@@ -61,20 +65,21 @@ contract EthFaucet is Ownable, Initializable {
 
     function setPeriodChecker(address _checker) public onlyOwner {
         if (sealState & PERIODCHECKER_STATE != 0) revert Sealed();
+        if (_checker == address(0)) revert InvalidAddress();
         periodChecker = _checker;
         emit SealStateChange(sealState, registry, periodChecker);
     }
 
     function setRegistry(address _registry) public onlyOwner {
         if (sealState & REGISTRY_STATE != 0) revert Sealed();
+        if (_registry == address(0)) revert InvalidAddress();
         registry = _registry;
         emit SealStateChange(sealState, registry, periodChecker);
     }
 
+    // Both gates fail closed: an unconfigured backend serves nothing
     function _checkPeriod(address _recipient) private returns (bool) {
-        if (periodChecker == address(0)) {
-            return true;
-        }
+        if (periodChecker == address(0)) revert PeriodBackend();
 
         (bool ok, bytes memory result) = periodChecker.call(abi.encodeWithSignature("have(address)", _recipient));
         if (!ok) revert PeriodBackend();
@@ -82,9 +87,7 @@ contract EthFaucet is Ownable, Initializable {
     }
 
     function _checkRegistry(address _recipient) private returns (bool) {
-        if (registry == address(0)) {
-            return true;
-        }
+        if (registry == address(0)) revert RegistryBackend();
 
         (bool ok, bytes memory result) = registry.call(abi.encodeWithSignature("have(address)", _recipient));
         if (!ok) revert RegistryBackend();
@@ -96,6 +99,9 @@ contract EthFaucet is Ownable, Initializable {
     }
 
     function check(address _recipient) public returns (bool) {
+        if (registry == address(0) || periodChecker == address(0)) {
+            return false;
+        }
         if (!_checkPeriod(_recipient)) {
             return false;
         }
@@ -114,9 +120,7 @@ contract EthFaucet is Ownable, Initializable {
             revert NotInWhitelist();
         }
 
-        if (periodChecker == address(0)) {
-            return true;
-        }
+        if (periodChecker == address(0)) revert PeriodBackend();
 
         (bool ok, bytes memory result) = periodChecker.call(abi.encodeWithSignature("poke(address)", _recipient));
         if (!ok) revert PeriodBackend();

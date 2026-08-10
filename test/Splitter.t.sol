@@ -385,6 +385,85 @@ contract SplitterTest is Test {
         assertEq(accounts[9].balance, 3 ether, "Last recipient should get 3%");
         assertEq(address(splitter).balance, 0, "Splitter should be empty");
     }
+
+    // ------------------------------------------------------------------
+    // H-3: the allocation sum is accumulated in uint256 and cannot wrap
+    // ------------------------------------------------------------------
+
+    function _three(uint32 p0, uint32 p1, uint32 p2)
+        internal
+        view
+        returns (address[] memory accounts, uint32[] memory allocs)
+    {
+        accounts = new address[](3);
+        allocs = new uint32[](3);
+        accounts[0] = r1;
+        accounts[1] = r2;
+        accounts[2] = r3;
+        allocs[0] = p0;
+        allocs[1] = p1;
+        allocs[2] = p2;
+    }
+
+    function test_updateSplit_revertIf_sumWrapsUint32() public {
+        // 500_000 + 500_001 + 4_294_967_295 == 2**32 + 1_000_000
+        (address[] memory accounts, uint32[] memory allocs) = _three(500_000, 500_001, 4_294_967_295);
+        assertEq(uint256(allocs[0]) + allocs[1] + allocs[2], (uint256(1) << 32) + 1_000_000, "true sum is not 100%");
+
+        vm.prank(owner);
+        vm.expectRevert(Splitter.InvalidAllocationsSum.selector);
+        splitter.updateSplit(accounts, allocs);
+    }
+
+    function test_updateSplit_revertIf_sumWrapsUint32_leadingSharesExceedBalance() public {
+        // 900_000 + 900_000 + 4_294_167_296 == 2**32 + 1_000_000
+        (address[] memory accounts, uint32[] memory allocs) = _three(900_000, 900_000, 4_294_167_296);
+
+        vm.prank(owner);
+        vm.expectRevert(Splitter.InvalidAllocationsSum.selector);
+        splitter.updateSplit(accounts, allocs);
+    }
+
+    function test_updateSplit_revertIf_singleAllocationExceedsScale() public {
+        (address[] memory accounts, uint32[] memory allocs) = _three(1_000_001, 1, 1);
+
+        vm.prank(owner);
+        vm.expectRevert(Splitter.InvalidAllocationsSum.selector);
+        splitter.updateSplit(accounts, allocs);
+    }
+
+    function test_initialize_revertIf_sumWrapsUint32() public {
+        Splitter fresh = Splitter(payable(LibClone.clone(address(implementation))));
+        (address[] memory accounts, uint32[] memory allocs) = _three(500_000, 500_001, 4_294_967_295);
+
+        vm.expectRevert(Splitter.InvalidAllocationsSum.selector);
+        fresh.initialize(owner, accounts, allocs);
+    }
+
+    function test_updateSplit_revertIf_sumOver_fuzz(uint32 p0, uint32 p1, uint32 p2) public {
+        uint256 trueSum = uint256(p0) + uint256(p1) + uint256(p2);
+        vm.assume(p0 != 0 && p1 != 0 && p2 != 0);
+        vm.assume(trueSum != 1_000_000);
+
+        (address[] memory accounts, uint32[] memory allocs) = _three(p0, p1, p2);
+
+        vm.prank(owner);
+        vm.expectRevert();
+        splitter.updateSplit(accounts, allocs);
+    }
+
+    function test_updateSplit_acceptsMaximalSingleAllocation() public {
+        address[] memory accounts = new address[](2);
+        uint32[] memory allocs = new uint32[](2);
+        accounts[0] = r1;
+        accounts[1] = r2;
+        allocs[0] = 999_999;
+        allocs[1] = 1;
+
+        vm.prank(owner);
+        splitter.updateSplit(accounts, allocs);
+        assertEq(splitter.getHash(), keccak256(abi.encodePacked(accounts, allocs)));
+    }
 }
 
 contract MockERC20 {

@@ -26,6 +26,7 @@ contract EthFaucetTest is Test {
 
     MockRegistry registry;
     PeriodSimple periodChecker;
+    PeriodSimple periodImplementation;
 
     address owner = makeAddr("owner");
     address user1 = makeAddr("user1");
@@ -38,13 +39,27 @@ contract EthFaucetTest is Test {
 
     function setUp() public {
         registry = new MockRegistry();
-        periodChecker = new PeriodSimple();
 
         implementation = new EthFaucet();
         address payable faucetAddress = payable(LibClone.clone(address(implementation)));
         faucet = EthFaucet(faucetAddress);
 
         faucet.initialize(owner, 1 ether);
+
+        periodImplementation = new PeriodSimple();
+        periodChecker = PeriodSimple(LibClone.clone(address(periodImplementation)));
+        periodChecker.initialize(owner, address(faucet));
+    }
+
+    // Both gates fail closed, so every claim path needs them wired up first
+    function _configureGating() internal {
+        vm.startPrank(owner);
+        faucet.setRegistry(address(registry));
+        faucet.setPeriodChecker(address(periodChecker));
+        vm.stopPrank();
+
+        registry.setWhitelisted(user1, true);
+        registry.setWhitelisted(user2, true);
     }
 
     function test_getters() public view {
@@ -101,12 +116,13 @@ contract EthFaucetTest is Test {
     }
 
     function test_setPeriodChecker_revertIf_sealed() public {
-        vm.prank(owner);
+        vm.startPrank(owner);
+        faucet.setPeriodChecker(address(periodChecker));
         faucet.seal(2);
 
-        vm.prank(owner);
         vm.expectRevert(Sealed.selector);
         faucet.setPeriodChecker(makeAddr("checker"));
+        vm.stopPrank();
     }
 
     function test_setRegistry() public {
@@ -128,15 +144,19 @@ contract EthFaucetTest is Test {
     }
 
     function test_setRegistry_revertIf_sealed() public {
-        vm.prank(owner);
+        vm.startPrank(owner);
+        faucet.setRegistry(address(registry));
         faucet.seal(1);
 
-        vm.prank(owner);
         vm.expectRevert(Sealed.selector);
         faucet.setRegistry(makeAddr("registry"));
+        vm.stopPrank();
     }
 
     function test_seal() public {
+        vm.prank(owner);
+        faucet.setRegistry(address(registry));
+
         vm.expectEmit(true, false, false, false);
         emit SealStateChange(1, faucet.registry(), faucet.periodChecker());
 
@@ -148,6 +168,8 @@ contract EthFaucetTest is Test {
     }
 
     function test_seal_multiple() public {
+        _configureGating();
+
         vm.startPrank(owner);
         faucet.seal(1);
         assertEq(faucet.sealState(), 1);
@@ -167,30 +189,31 @@ contract EthFaucetTest is Test {
     }
 
     function test_seal_revertIf_already_locked() public {
-        vm.prank(owner);
+        vm.startPrank(owner);
+        faucet.setRegistry(address(registry));
         faucet.seal(1);
+        vm.stopPrank();
 
         vm.prank(owner);
         vm.expectRevert(AlreadyLocked.selector);
         faucet.seal(1);
     }
 
-    function test_check_no_constraints() public {
+    function test_check_unconfiguredGating_isFalse() public {
         vm.deal(address(faucet), 10 ether);
-        assertTrue(faucet.check(user1));
+        assertFalse(faucet.check(user1), "an ungated faucet serves nobody");
     }
 
     function test_check_insufficient_balance() public {
+        _configureGating();
         vm.deal(address(faucet), 0.5 ether);
         assertFalse(faucet.check(user1));
     }
 
     function test_check_with_registry() public {
-        vm.prank(owner);
-        faucet.setRegistry(address(registry));
+        _configureGating();
         vm.deal(address(faucet), 10 ether);
 
-        registry.setWhitelisted(user1, true);
         assertTrue(faucet.check(user1));
 
         registry.setWhitelisted(user2, false);
@@ -198,14 +221,14 @@ contract EthFaucetTest is Test {
     }
 
     function test_check_with_period_checker() public {
-        vm.prank(owner);
-        faucet.setPeriodChecker(address(periodChecker));
+        _configureGating();
         vm.deal(address(faucet), 10 ether);
 
         assertTrue(faucet.check(user1));
     }
 
     function test_gimme() public {
+        _configureGating();
         vm.deal(address(faucet), 10 ether);
         uint256 balanceBefore = user1.balance;
 
@@ -221,6 +244,7 @@ contract EthFaucetTest is Test {
     }
 
     function test_gimme_revertIf_insufficient_balance() public {
+        _configureGating();
         vm.deal(address(faucet), 0.5 ether);
 
         vm.prank(user1);
@@ -229,11 +253,9 @@ contract EthFaucetTest is Test {
     }
 
     function test_gimme_with_registry() public {
-        vm.prank(owner);
-        faucet.setRegistry(address(registry));
+        _configureGating();
         vm.deal(address(faucet), 10 ether);
 
-        registry.setWhitelisted(user1, true);
         registry.setWhitelisted(user2, false);
 
         vm.prank(user1);
@@ -245,6 +267,7 @@ contract EthFaucetTest is Test {
     }
 
     function test_giveTo() public {
+        _configureGating();
         vm.deal(address(faucet), 10 ether);
         uint256 balanceBefore = user2.balance;
 
@@ -259,6 +282,7 @@ contract EthFaucetTest is Test {
     }
 
     function test_giveTo_revertIf_insufficient_balance() public {
+        _configureGating();
         vm.deal(address(faucet), 0.5 ether);
 
         vm.prank(user1);
@@ -291,6 +315,8 @@ contract EthFaucetTest is Test {
         vm.assume(amount > 0 && amount < 100 ether);
         vm.assume(balance > amount);
 
+        _configureGating();
+
         vm.prank(owner);
         faucet.setAmount(amount);
         vm.deal(address(faucet), balance);
@@ -301,6 +327,142 @@ contract EthFaucetTest is Test {
         faucet.gimme();
 
         assertEq(user1.balance, balanceBefore + amount);
+    }
+
+    // ------------------------------------------------------------------
+    // H-4: the gates fail closed, and neither can be set back to unset
+    // ------------------------------------------------------------------
+
+    function test_gimme_revertIf_gatingUnconfigured() public {
+        vm.deal(address(faucet), 10 ether);
+
+        vm.prank(user1);
+        vm.expectRevert(RegistryBackend.selector);
+        faucet.gimme();
+
+        assertEq(address(faucet).balance, 10 ether, "nothing was dispensed");
+    }
+
+    function test_giveTo_revertIf_gatingUnconfigured() public {
+        vm.deal(address(faucet), 10 ether);
+
+        vm.prank(user1);
+        vm.expectRevert(RegistryBackend.selector);
+        faucet.giveTo(user2);
+    }
+
+    function test_gimme_revertIf_periodCheckerUnconfigured() public {
+        vm.prank(owner);
+        faucet.setRegistry(address(registry));
+        registry.setWhitelisted(user1, true);
+        vm.deal(address(faucet), 10 ether);
+
+        vm.prank(user1);
+        vm.expectRevert(PeriodBackend.selector);
+        faucet.gimme();
+
+        assertEq(address(faucet).balance, 10 ether, "the whitelist alone is not enough");
+    }
+
+    function test_setRegistry_revertIf_zeroAddress() public {
+        vm.prank(owner);
+        faucet.setRegistry(address(registry));
+
+        vm.prank(owner);
+        vm.expectRevert(EthFaucet.InvalidAddress.selector);
+        faucet.setRegistry(address(0));
+
+        assertEq(faucet.registry(), address(registry), "gating cannot be silently removed");
+    }
+
+    function test_setPeriodChecker_revertIf_zeroAddress() public {
+        vm.prank(owner);
+        faucet.setPeriodChecker(address(periodChecker));
+
+        vm.prank(owner);
+        vm.expectRevert(EthFaucet.InvalidAddress.selector);
+        faucet.setPeriodChecker(address(0));
+
+        assertEq(faucet.periodChecker(), address(periodChecker));
+    }
+
+    function test_gimme_cooldownIsEnforced() public {
+        _configureGating();
+        vm.prank(owner);
+        periodChecker.setPeriod(1 days);
+        vm.deal(address(faucet), 10 ether);
+
+        vm.prank(user1);
+        faucet.gimme();
+
+        vm.prank(user1);
+        vm.expectRevert(PeriodBackend.selector);
+        faucet.gimme();
+
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(user1);
+        faucet.gimme();
+
+        assertEq(user1.balance, 2 ether, "one claim per period");
+    }
+
+    // ------------------------------------------------------------------
+    // H-5: a field cannot be sealed before it holds a meaningful value
+    // ------------------------------------------------------------------
+
+    function test_seal_revertIf_registryUnset() public {
+        vm.prank(owner);
+        vm.expectRevert(InvalidState.selector);
+        faucet.seal(1);
+
+        assertEq(faucet.sealState(), 0);
+    }
+
+    function test_seal_revertIf_periodCheckerUnset() public {
+        vm.prank(owner);
+        vm.expectRevert(InvalidState.selector);
+        faucet.seal(2);
+    }
+
+    function test_seal_revertIf_amountZero() public {
+        vm.startPrank(owner);
+        faucet.setAmount(0);
+        vm.expectRevert(InvalidState.selector);
+        faucet.seal(4);
+        vm.stopPrank();
+    }
+
+    function test_seal_revertIf_anyBitInMaskIsUnset() public {
+        vm.startPrank(owner);
+        faucet.setRegistry(address(registry));
+
+        // Bit 1 is configured, bit 2 is not — the whole mask is rejected.
+        vm.expectRevert(InvalidState.selector);
+        faucet.seal(3);
+        vm.stopPrank();
+
+        assertEq(faucet.sealState(), 0);
+    }
+
+    function test_seal_allBitsAfterConfiguring() public {
+        _configureGating();
+
+        vm.prank(owner);
+        assertEq(faucet.seal(7), 7);
+
+        vm.startPrank(owner);
+        vm.expectRevert(Sealed.selector);
+        faucet.setRegistry(makeAddr("other"));
+        vm.expectRevert(Sealed.selector);
+        faucet.setPeriodChecker(makeAddr("other"));
+        vm.expectRevert(Sealed.selector);
+        faucet.setAmount(2 ether);
+        vm.stopPrank();
+
+        // A sealed faucet still serves whitelisted callers under the cooldown.
+        vm.deal(address(faucet), 10 ether);
+        vm.prank(user1);
+        assertEq(faucet.gimme(), 1 ether);
     }
 }
 

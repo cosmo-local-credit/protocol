@@ -83,21 +83,22 @@ contract Splitter is ISplitter, Ownable, Initializable {
         if (accounts.length < 2) revert TooFewAccounts();
         if (accounts.length != percentAllocations.length) revert AccountsAndAllocationsMismatch();
 
-        uint32 sum;
-        unchecked {
-            for (uint256 i; i < accounts.length; ++i) {
-                uint32 alloc = percentAllocations[i];
-                if (alloc == 0) revert AllocationMustBePositive();
-                sum += alloc;
+        uint256 sum;
+        for (uint256 i; i < accounts.length; ++i) {
+            uint32 alloc = percentAllocations[i];
+            if (alloc == 0) revert AllocationMustBePositive();
+            if (uint256(alloc) > PERCENTAGE_SCALE) revert InvalidAllocationsSum();
+            sum += alloc;
 
-                // Check for duplicates
+            // Check for duplicates
+            unchecked {
                 for (uint256 j = i + 1; j < accounts.length; ++j) {
                     if (accounts[i] == accounts[j]) revert DuplicateAccount();
                 }
             }
         }
 
-        if (uint256(sum) != PERCENTAGE_SCALE) revert InvalidAllocationsSum();
+        if (sum != PERCENTAGE_SCALE) revert InvalidAllocationsSum();
     }
 
     function _distributeETH(uint256 amountToSplit, address[] calldata accounts, uint32[] calldata percentAllocations)

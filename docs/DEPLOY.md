@@ -256,10 +256,37 @@ cast send $ORACLEQUOTER_PROXY \
 
 ### EthFaucet
 
+Deploying the proxy is only the first half. Both gates — the whitelist
+(`registry`) and the cooldown (`periodChecker`) — start unset, and an
+unconfigured faucet serves nobody: every `gimme()` / `giveTo()` reverts
+`RegistryBackend` or `PeriodBackend`. **Fund the faucet only after both are
+wired.**
+
 ```bash
 ./ge-publish deploy-proxy --contract ethfaucet $BASE \
   --factory-address $FACTORY --impl-address $IMPL_ETHFAUCET --owner $OWNER \
   --faucet-amount 1000000000000000  # drip amount in wei (0.001 CELO)
+```
+
+Then wire the gating, as `$OWNER`. `$REGISTRY` is an AccountsIndex or
+ContractRegistry proxy answering `have(address)`; `$PERIODCHECKER` is a
+PeriodSimple proxy whose `poker` is the faucet proxy.
+
+```bash
+cast send $FAUCET "setRegistry(address)"      $REGISTRY      $SEND
+cast send $FAUCET "setPeriodChecker(address)" $PERIODCHECKER $SEND
+cast send $PERIODCHECKER "setPeriod(uint256)" 86400          $SEND
+
+# Verify before funding — this must return true for a whitelisted address.
+cast call $FAUCET "check(address)(bool)" $SOME_WHITELISTED_ADDRESS
+```
+
+Neither setter accepts `address(0)`, so gating cannot be removed once set. If
+you intend to seal the faucet, seal *after* wiring: `seal()` rejects any bit
+whose field is still unconfigured.
+
+```bash
+cast send $FAUCET "seal(uint8)" 7 $SEND   # registry | periodChecker | amount
 ```
 
 ### Splitter

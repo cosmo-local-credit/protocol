@@ -23,7 +23,7 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
     uint256 private constant DEFAULT_MAX_STALENESS = 86400; // 1 day
     uint256 private constant PPM = 1_000_000;
     uint256 private constant MIN_MULTIPLIER = 900_000; // 0.9x
-    uint256 private constant MAX_MULTIPLIER = 1_100_000; // 1.1x
+    uint256 private constant MAX_MULTIPLIER = PPM; // 1.0x — parity is the ceiling
 
     mapping(address => address) public oracles;
     address public baseCurrency;

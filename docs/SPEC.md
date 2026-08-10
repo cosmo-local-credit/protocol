@@ -83,12 +83,13 @@ Automated market maker for token swaps, with configurable fees, deposit limits, 
 
 Liquidity:
 - `initialize(name, symbol, decimals, owner, feePolicy, feeAddress, tokenRegistry, tokenLimiter, quoter, feesDecoupled, protocolFeeController)`: one-time setup.
-- `deposit(token, value)`: add liquidity. Transfers `value` of `token` from the caller into the pool and emits `Deposit`.
+- `deposit(token, value)`: add liquidity. Transfers `value` of `token` from the caller into the pool, measures the balance delta, and returns and emits the amount actually received. Reverts with `TransferFailed` if the pool received nothing.
 - `withdrawLiquidity(token, to, amount)`: owner-only emergency withdrawal of pool liquidity. Use a timelock or multisig owner.
 
-Swapping:
+Swapping. All three return the net amount transferred to the recipient. `tokenIn` and `tokenOut` must differ.
 - `withdraw(tokenOut, tokenIn, value)`: swap `value` of `tokenIn` for `tokenOut`. Output goes to `msg.sender`.
 - `withdraw(tokenOut, tokenIn, value, recipient)`: same swap, output goes to `recipient`. Reverts with `InvalidRecipient` if `recipient` is the zero address.
+- `withdraw(tokenOut, tokenIn, value, recipient, minAmountOut, deadline)`: bounded swap. Reverts with `Expired` if `block.timestamp > deadline`, and with `InsufficientOutput` if the net amount transferred is below `minAmountOut`. Integrators should prefer this form: the executed price is read from `quoter` and `feePolicy` at execution time, so an unbounded swap has no protection against a price move between quoting and settlement.
 
 Fee collection (owner only):
 - `withdraw(tokenOut)`: send all accumulated pool fees for `tokenOut` to `feeAddress`.
@@ -124,8 +125,9 @@ Seal is a bitmask. Each bit permanently locks one field. Bits can only be set, n
 
 For `withdraw(tokenOut, tokenIn, value[, recipient])`:
 
-1. The caller's `tokenIn` is deposited into the pool. Registry and limiter checks apply, and a `Deposit` event is emitted.
-2. A raw quote is taken: `quotedValue = quoter.valueFor(tokenOut, tokenIn, value)`, or `value` if no quoter is set.
+0. `tokenIn == tokenOut` reverts with `InvalidToken`. `deposit` and all three swap entry points are `nonReentrant`, so a token with a transfer hook cannot nest a second call inside one in flight.
+1. The caller's `tokenIn` is deposited into the pool. Registry and limiter checks apply, the pool's balance delta is measured as `received`, and a `Deposit` event carrying `received` is emitted. For a well-behaved ERC20 `received == value`; for a fee-on-transfer token it is less, and everything downstream is priced on `received`.
+2. A raw quote is taken: `quotedValue = quoter.valueFor(tokenOut, tokenIn, received)`, or `received` if no quoter is set.
 3. Pool fee: `totalFee = quotedValue * feePpm / PPM`.
 4. Protocol fee is computed (see below).
 5. The recipient receives `netValue = quotedValue - totalFee - protocolFee`. The protocol fee, if any, is sent to the protocol recipient in the same call.
@@ -155,20 +157,24 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 
 **Errors:**
 - `InvalidRecipient`: the `recipient` argument is the zero address.
+- `InvalidToken`: `tokenIn` and `tokenOut` are the same token.
+- `Expired`: the bounded swap's `deadline` has passed.
+- `InsufficientOutput`: the bounded swap would settle below `minAmountOut`.
+- `Reentrancy`: a token hook re-entered `deposit` or a swap while one was still in flight.
 - `InvalidFeeAddress`: `feeAddress` is the zero address when collecting fees.
 - `InsufficientBalance`: the pool lacks enough `tokenOut` liquidity.
 - `InsufficientFees`: accumulated fees are zero or below the requested amount.
 - `UnauthorizedToken`: the token is not whitelisted in `tokenRegistry`.
 - `LimitExceeded`: the deposit would exceed the limiter cap.
-- `TransferFailed`: an ERC20 transfer returned false.
+- `TransferFailed`: an ERC20 transfer returned false, or a deposit delivered nothing.
 - `RegistryCallFailed`: the registry `have()` call reverted.
 - `Sealed`: attempted to modify a sealed field.
 - `AlreadyLocked`: the seal bit is already set.
 - `InvalidState`: a seal bitmask argument is out of range.
 
 **Events:**
-- `Deposit(initiator, tokenIn, amountIn)`: emitted whenever tokens enter the pool. This fires on an explicit `deposit()` call and also at the start of every swap, because a swap deposits `tokenIn` first. Expect a `Deposit` immediately before each `Swap`.
-- `Swap(initiator, tokenIn, tokenOut, amountIn, amountOut, fee)`: emitted on every swap. `initiator` is always `msg.sender`. Note that `amountOut` is the gross quoted value before fees, not the net amount the recipient received. `fee` is the pool fee only and excludes the protocol fee. The net amount received equals `amountOut - fee - protocolFee`.
+- `Deposit(initiator, tokenIn, amountIn)`: emitted whenever tokens enter the pool. This fires on an explicit `deposit()` call and also at the start of every swap, because a swap deposits `tokenIn` first. `amountIn` is the measured balance delta, not the requested amount. Expect a `Deposit` immediately before each `Swap`.
+- `Swap(initiator, tokenIn, tokenOut, amountIn, amountOut, fee)`: emitted on every swap. `initiator` is always `msg.sender`. `amountIn` is the amount the pool received and `amountOut` is the net amount transferred to the recipient, so settlement is verifiable from the log alone. `fee` is the pool fee only and excludes the protocol fee; on a pair quoted 1:1 the protocol fee is `amountIn - amountOut - fee`.
 - `Collect(feeAddress, tokenOut, amountOut)`: emitted when the owner withdraws accumulated fees.
 - `SealStateChange(final, sealState)`: emitted on each `seal()` call. `final` is true once `sealState == maxSealState`.
 
@@ -193,7 +199,7 @@ Distributes an ETH or ERC20 balance among a fixed set of recipients by percentag
 
 **Rules:**
 - The passed arrays must hash to the stored split, or the call reverts with `InvalidHash`. Only the hash is stored on-chain, so callers must supply the full arrays each time.
-- Allocations are in PPM and must sum to exactly `1_000_000`.
+- Allocations are in PPM and must sum to exactly `1_000_000`. The sum is accumulated in `uint256` and each individual allocation must be at most `1_000_000`, so the total cannot wrap.
 - At least 2 recipients. No duplicate addresses. No zero allocations.
 - Any rounding remainder goes to the last recipient in the array.
 - An empty balance is a no-op, not a revert.
@@ -289,7 +295,7 @@ Price quoter using Chainlink oracle feeds.
 - `setOracle(token, oracleAddress)`: map a token to its Chainlink `AggregatorV3` feed. Owner only.
 - `removeOracle(token)`: owner only.
 - `setMaxStaleness(seconds)`: maximum age of an oracle price before it is rejected. Default is `86400` (1 day). Owner only.
-- `setMultiplier(multiplier)`: adjust all quotes by a factor in PPM. Owner only. Allowed range is `900_000` (0.9x) to `1_100_000` (1.1x). A stored value of `0` or `1_000_000` means no adjustment.
+- `setMultiplier(multiplier)`: adjust all quotes by a factor in PPM. Owner only. Allowed range is `900_000` (0.9x) to `1_000_000` (1.0x); parity is the ceiling. A stored value of `0` or `1_000_000` means no adjustment. Above-parity values are rejected with `InvalidMultiplier`: the same factor is applied to the output side of both legs of a pair, so a value above parity is a subsidy on every leg rather than a spread, and an A->B->A round trip would return `multiplier²` of the notional to any caller.
 - `valueFor(outToken, inToken, value)`: forward quote using live oracle prices, then the multiplier.
 - `reverseValueFor(outToken, inToken, value)`: inverse of `valueFor`, rounded up. SwapPool uses this for `getAmountIn`.
 
@@ -445,7 +451,7 @@ uint256 amountIn = router.quoteExactOutput(path, 50e6);
 
 ## EthFaucet
 
-Native ETH faucet with an optional whitelist and an optional cooldown.
+Native ETH faucet gated by a whitelist and a cooldown. Both gates are mandatory: they fail closed.
 
 **Proxy:** Yes (ERC1967)
 
@@ -453,20 +459,22 @@ Native ETH faucet with an optional whitelist and an optional cooldown.
 - `initialize(owner, amount)`: set the owner and the ETH amount paid per claim.
 - `gimme()`: claim ETH for the caller.
 - `giveTo(recipient)`: claim ETH on behalf of another address.
-- `check(recipient)`: returns true if `recipient` can claim right now. Does not record usage.
+- `check(recipient)`: returns true if `recipient` can claim right now. Returns false — rather than reverting — when either gate is unset. Does not record usage.
 - `nextTime(subject)`: timestamp when `subject` may next claim. Requires a `periodChecker`.
 - `setAmount(value)`: owner only. Reverts with `Sealed` if `VALUE_STATE` is sealed.
-- `setRegistry(address)`: set the whitelist contract. Owner only. Reverts with `Sealed` if `REGISTRY_STATE` is sealed.
-- `setPeriodChecker(address)`: set the cooldown contract. Owner only. Reverts with `Sealed` if `PERIODCHECKER_STATE` is sealed.
-- `seal(state)`: permanently lock configuration fields. Owner only.
+- `setRegistry(address)`: set the whitelist contract. Owner only. Reverts with `Sealed` if `REGISTRY_STATE` is sealed, and with `InvalidAddress` on the zero address, so gating cannot be removed once set.
+- `setPeriodChecker(address)`: set the cooldown contract. Owner only. Same restrictions as `setRegistry`.
+- `seal(state)`: permanently lock configuration fields. Owner only. Reverts with `InvalidState` if any requested bit names a field that is still unconfigured — an unset `registry` or `periodChecker`, or a zero `amount` — so sealing can never freeze the faucet in an unusable state.
+
+**Gating is mandatory.** After `initialize` both `registry` and `periodChecker` are the zero address, and every claim reverts (`RegistryBackend`, then `PeriodBackend`). Wire both before funding the faucet; see [DEPLOY.md](DEPLOY.md#ethfaucet).
 
 **Seal states:** `REGISTRY_STATE = 1`, `PERIODCHECKER_STATE = 2`, `VALUE_STATE = 4`, `maxSealState = 7`.
 
 **Payout note:** claims pay out with a plain `transfer`, which forwards only 2300 gas. A contract recipient with a costly `receive`/`fallback` will cause the claim to revert.
 
 **External interfaces expected:**
-- `registry.have(address) -> bool`: whitelist check. Skipped when `registry` is unset.
-- `periodChecker.have(address) -> bool`: cooldown eligibility. Skipped when `periodChecker` is unset.
+- `registry.have(address) -> bool`: whitelist check. Claims revert with `RegistryBackend` when `registry` is unset.
+- `periodChecker.have(address) -> bool`: cooldown eligibility. Claims revert with `PeriodBackend` when `periodChecker` is unset.
 - `periodChecker.poke(address) -> bool`: record usage.
 - `periodChecker.next(address) -> uint256`: next allowed timestamp.
 
