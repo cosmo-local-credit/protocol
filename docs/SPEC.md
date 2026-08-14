@@ -126,7 +126,7 @@ Seal is a bitmask. Each bit permanently locks one field. Bits can only be set, n
 For `withdraw(tokenOut, tokenIn, value[, recipient])`:
 
 0. `tokenIn == tokenOut` reverts with `InvalidToken`. `deposit` and all three swap entry points are `nonReentrant`, so a token with a transfer hook cannot nest a second call inside one in flight.
-1. The caller's `tokenIn` is deposited into the pool. Registry and limiter checks apply, the pool's balance delta is measured as `received`, and a `Deposit` event carrying `received` is emitted. For a well-behaved ERC20 `received == value`; for a fee-on-transfer token it is less, and everything downstream is priced on `received`.
+1. The caller's `tokenIn` is deposited into the pool. Registry and limiter checks apply, the pool's balance delta is measured as `received`, and a `Deposit` event carrying `received` is emitted. For a well-behaved ERC20 `received == value`; for a fee-on-transfer token it is less, and everything downstream is priced on `received`. A measured delta of zero reverts `TransferFailed`.
 2. A raw quote is taken: `quotedValue = quoter.valueFor(tokenOut, tokenIn, received)`, or `received` if no quoter is set.
 3. Pool fee: `totalFee = quotedValue * feePpm / PPM`.
 4. Protocol fee is computed (see below).
@@ -152,6 +152,7 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 - The token must pass the registry `have(token)` check, if `tokenRegistry` is set.
 - A deposit must not push the pool balance above the limiter cap, if `tokenLimiter` is set. Note that a limit of `0` blocks all deposits (see [Limiter](#limiter)).
 - The pool must hold enough `tokenOut` to cover `quotedValue`.
+- The pool must actually receive tokens. `deposit(token, 0)` and a swap with `value == 0` revert `TransferFailed` rather than succeeding as no-ops, which is a change from earlier versions that credited the requested amount without measuring it.
 - `feeAddress` must be non-zero to collect fees.
 - `recipient` must be non-zero for the 4-argument `withdraw`.
 
