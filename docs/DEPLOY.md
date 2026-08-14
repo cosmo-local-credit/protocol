@@ -16,6 +16,7 @@ export RPC_URL=https://forno.celo.org
 export CHAIN_ID=42220
 export PRIVATE_KEY=<deployer hex key>
 export OWNER=<owner address>
+export ADMIN=<proxy admin; must differ from OWNER — a timelock or multisig>
 export ETHERSCAN_API_KEY=<api key from etherscan.io — works for all chains via V2>
 
 # shorthand used in every command below
@@ -175,25 +176,25 @@ Celoscan will auto-detect ERC1967 proxy addresses and link them to their verifie
 
 ## 5. Deploy Proxies
 
-Each proxy is an independent instance with its own storage (owner, state). Multiple proxies can share one implementation.
+Each proxy is an independent instance with its own storage (owner, state). Multiple proxies can share one implementation. `--admin` is required and must differ from `--owner`: seal on SwapPool (and EthFaucet) is only a commitment when the key that can `upgrade` is not the key that called `seal`. Use a timelock or multisig.
 
 ### Contracts with no extra required args
 
 ```bash
 ./ge-publish deploy-proxy --contract accountsindex $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_ACCOUNTSINDEX --owner $OWNER
+  --factory-address $FACTORY --impl-address $IMPL_ACCOUNTSINDEX --owner $OWNER --admin $ADMIN
 
 ./ge-publish deploy-proxy --contract cat $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_CAT --owner $OWNER
+  --factory-address $FACTORY --impl-address $IMPL_CAT --owner $OWNER --admin $ADMIN
 
 ./ge-publish deploy-proxy --contract limiter $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_LIMITER --owner $OWNER
+  --factory-address $FACTORY --impl-address $IMPL_LIMITER --owner $OWNER --admin $ADMIN
 
 ./ge-publish deploy-proxy --contract relativequoter $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_RELATIVEQUOTER --owner $OWNER
+  --factory-address $FACTORY --impl-address $IMPL_RELATIVEQUOTER --owner $OWNER --admin $ADMIN
 
 ./ge-publish deploy-proxy --contract periodsimple $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_PERIODSIMPLE --owner $OWNER
+  --factory-address $FACTORY --impl-address $IMPL_PERIODSIMPLE --owner $OWNER --admin $ADMIN
   # --period-poker <addr>   optional, defaults to owner
 ```
 
@@ -201,7 +202,7 @@ Each proxy is an independent instance with its own storage (owner, state). Multi
 
 ```bash
 ./ge-publish deploy-proxy --contract feepolicy $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_FEEPOLICY --owner $OWNER \
+  --factory-address $FACTORY --impl-address $IMPL_FEEPOLICY --owner $OWNER --admin $ADMIN \
   --fee-policy-default 5000   # 0.5% in PPM (parts per million)
 ```
 
@@ -209,7 +210,7 @@ Each proxy is an independent instance with its own storage (owner, state). Multi
 
 ```bash
 ./ge-publish deploy-proxy --contract pfc $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_PFC --owner $OWNER \
+  --factory-address $FACTORY --impl-address $IMPL_PFC --owner $OWNER --admin $ADMIN \
   --protocol-fee 1000 \          # 0.1% in PPM
   --protocol-recipient $OWNER    # address that receives the protocol fee
 ```
@@ -218,7 +219,7 @@ Each proxy is an independent instance with its own storage (owner, state). Multi
 
 ```bash
 ./ge-publish deploy-proxy --contract oraclequoter $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_ORACLEQUOTER --owner $OWNER \
+  --factory-address $FACTORY --impl-address $IMPL_ORACLEQUOTER --owner $OWNER --admin $ADMIN \
   --base-currency $USDC_ADDRESS  # all oracle feeds must be priced in this token
 ```
 
@@ -233,7 +234,7 @@ cast send $ORACLEQUOTER_PROXY \
 
 ```bash
 ./ge-publish deploy-proxy --contract giftabletoken $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_GIFTABLETOKEN --owner $OWNER \
+  --factory-address $FACTORY --impl-address $IMPL_GIFTABLETOKEN --owner $OWNER --admin $ADMIN \
   --token-name "Sarafu" --token-symbol "SRF" --token-decimals 6
 ```
 
@@ -241,7 +242,7 @@ cast send $ORACLEQUOTER_PROXY \
 
 ```bash
 ./ge-publish deploy-proxy --contract contractregistry $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_CONTRACTREGISTRY --owner $OWNER \
+  --factory-address $FACTORY --impl-address $IMPL_CONTRACTREGISTRY --owner $OWNER --admin $ADMIN \
   --registry-identifiers "SwapPool,GiftableToken,Limiter"  # comma-separated
 ```
 
@@ -249,7 +250,7 @@ cast send $ORACLEQUOTER_PROXY \
 
 ```bash
 ./ge-publish deploy-proxy --contract tokenuniquesymbolindex $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_TOKENUNIQUESYMBOLINDEX --owner $OWNER
+  --factory-address $FACTORY --impl-address $IMPL_TOKENUNIQUESYMBOLINDEX --owner $OWNER --admin $ADMIN
   # --token-index-tokens  "0xA,0xB"   optional: pre-register tokens
   # --token-index-symbols "SRF,MBAO"  optional: must match token count
 ```
@@ -264,7 +265,7 @@ wired.**
 
 ```bash
 ./ge-publish deploy-proxy --contract ethfaucet $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_ETHFAUCET --owner $OWNER \
+  --factory-address $FACTORY --impl-address $IMPL_ETHFAUCET --owner $OWNER --admin $ADMIN \
   --faucet-amount 1000000000000000  # drip amount in wei (0.001 CELO)
 ```
 
@@ -295,7 +296,7 @@ Allocations are in PPM (parts per million) and must sum to 1,000,000.
 
 ```bash
 ./ge-publish deploy-proxy --contract splitter $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_SPLITTER --owner $OWNER \
+  --factory-address $FACTORY --impl-address $IMPL_SPLITTER --owner $OWNER --admin $ADMIN \
   --splitter-accounts   "0xADDR1,0xADDR2" \
   --splitter-allocations "700000,300000"   # 70% / 30%
 ```
@@ -306,7 +307,7 @@ Requires `feepolicy`, `limiter`, and `pfc` proxy addresses. `--pool-quoter` must
 
 ```bash
 ./ge-publish deploy-proxy --contract swappool $BASE \
-  --factory-address $FACTORY --impl-address $IMPL_SWAPPOOL --owner $OWNER \
+  --factory-address $FACTORY --impl-address $IMPL_SWAPPOOL --owner $OWNER --admin $ADMIN \
   --pool-name "Sarafu Pool" --pool-symbol "SRFp" --pool-decimals 6 \
   --pool-quoter              $RELATIVEQUOTER_PROXY \
   --pool-fee-policy          $FEEPOLICY_PROXY \
@@ -315,6 +316,12 @@ Requires `feepolicy`, `limiter`, and `pfc` proxy addresses. `--pool-quoter` must
   # --pool-fee-address        <addr>   optional, defaults to owner
   # --pool-token-registry     <addr>   optional
   # --pool-fees-decoupled              optional flag
+```
+
+To lock configuration, seal all five bits after wiring registry and limiter:
+
+```bash
+cast send $SWAPPOOL_PROXY "seal(uint8)" 31 $SEND   # fee | feeAddress | quoter | registry | limiter
 ```
 
 ---

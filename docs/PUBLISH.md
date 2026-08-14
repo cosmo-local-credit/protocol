@@ -90,6 +90,7 @@ Additional required flags by contract:
 | `decimalquoter` | none |
 | `swaprouter` | none |
 | `rescuevault` | none (`--admin` optional; defaults to deployer / owner) |
+| proxied contracts | `--admin` required and must differ from `--owner` |
 | `accountsindex` | none |
 | `cat` | none |
 | `ethfaucet` | none (`--faucet-amount` optional) |

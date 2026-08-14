@@ -100,11 +100,11 @@ Configuration (owner only):
 - `setFeePolicy(address)`: reverts with `Sealed` if `FEE_STATE` is sealed.
 - `setFeeAddress(address)`: reverts with `Sealed` if `FEEADDRESS_STATE` is sealed.
 - `setQuoter(address)`: reverts with `Sealed` if `QUOTER_STATE` is sealed.
-- `setTokenRegistry(address)`: no seal restriction.
-- `setTokenLimiter(address)`: no seal restriction.
+- `setTokenRegistry(address)`: reverts with `Sealed` if `REGISTRY_STATE` is sealed.
+- `setTokenLimiter(address)`: reverts with `Sealed` if `LIMITER_STATE` is sealed.
 
 Queries:
-- `isSealed(state)`: pass a single seal bit (1, 2, or 4) to check if that field is locked, or pass `0` to check if the pool is fully sealed. Reverts with `InvalidState` if `state >= maxSealState`, so use `0` (not `7`) for the fully-sealed check.
+- `isSealed(state)`: pass a seal bit or combination (1, 2, 4, 8, 16, or 31) to check if those fields are locked, or pass `0` to check if the pool is fully sealed under `fullSealMask`. Reverts with `InvalidState` if `state > maxSealState`.
 - `getQuote(tokenOut, tokenIn, value)`: raw quoted output from the quoter, before any fees.
 - `getFee(inToken, outToken, value)`: pool fee amount for a given quoted value.
 - `getAmountOut(tokenOut, tokenIn, amountIn)`: net output after pool fee and protocol fee.
@@ -119,7 +119,11 @@ Seal is a bitmask. Each bit permanently locks one field. Bits can only be set, n
 | `FEE_STATE` | 1 | `feePolicy` (via `setFeePolicy`) |
 | `FEEADDRESS_STATE` | 2 | `feeAddress` (via `setFeeAddress`) |
 | `QUOTER_STATE` | 4 | `quoter` (via `setQuoter`) |
-| `maxSealState` | 7 | all three fields (fully sealed) |
+| `REGISTRY_STATE` | 8 | `tokenRegistry` (via `setTokenRegistry`) |
+| `LIMITER_STATE` | 16 | `tokenLimiter` (via `setTokenLimiter`) |
+| `maxSealState` | 31 | all five fields (fully sealed) |
+
+`fullSealMask` is written to `maxSealState` at `initialize` and frozen there. `isSealed(0)` compares against that stored mask, not the compiled constant, so adding a seal bit in a later implementation does not silently unseal existing pools. Sealing an address locks the slot, not the callee: a sealed `quoter` or `feePolicy` can still change its own rates. Seal is only a commitment when the ERC1967 proxy admin is a different, more conservative principal than the owner — `ge-publish` requires `--admin` and rejects `admin == owner`.
 
 **Swap Mechanics**
 
@@ -177,7 +181,7 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 - `Deposit(initiator, tokenIn, amountIn)`: emitted whenever tokens enter the pool. This fires on an explicit `deposit()` call and also at the start of every swap, because a swap deposits `tokenIn` first. `amountIn` is the measured balance delta, not the requested amount. Expect a `Deposit` immediately before each `Swap`.
 - `Swap(initiator, tokenIn, tokenOut, amountIn, amountOut, fee)`: emitted on every swap. `initiator` is always `msg.sender`. `amountIn` is the amount the pool received and `amountOut` is the net amount transferred to the recipient, so settlement is verifiable from the log alone. `fee` is the pool fee only and excludes the protocol fee; on a pair quoted 1:1 the protocol fee is `amountIn - amountOut - fee`.
 - `Collect(feeAddress, tokenOut, amountOut)`: emitted when the owner withdraws accumulated fees.
-- `SealStateChange(final, sealState)`: emitted on each `seal()` call. `final` is true once `sealState == maxSealState`.
+- `SealStateChange(final, sealState)`: emitted on each `seal()` call. `final` is true once `sealState` covers `fullSealMask`.
 
 ---
 

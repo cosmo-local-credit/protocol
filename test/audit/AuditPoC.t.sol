@@ -376,19 +376,25 @@ contract AuditPoCTest is Test {
 
         p.seal(7);
         assertEq(p.sealState(), 7);
+        assertTrue(p.isSealed(7));
+        assertFalse(p.isSealed(0), "registry and limiter bits still open");
+
+        // After only the original three bits, registry and limiter stay writable.
+        p.setTokenRegistry(address(0xdead));
+        p.setTokenLimiter(address(0xbeef));
+        assertEq(p.tokenRegistry(), address(0xdead));
+        assertEq(p.tokenLimiter(), address(0xbeef));
+
+        p.seal(24); // 8 | 16
+        assertTrue(p.isSealed(0));
+        vm.expectRevert(SwapPool.Sealed.selector);
+        p.setTokenRegistry(address(0));
+        vm.expectRevert(SwapPool.Sealed.selector);
+        p.setTokenLimiter(address(0));
         vm.stopPrank();
 
         vm.expectRevert(SwapPool.InvalidState.selector);
-        p.isSealed(7); // cannot query the fully-sealed state directly
-        assertTrue(p.isSealed(0)); // must use 0 instead
-
-        // A fully sealed pool can still have its registry and limiter replaced.
-        vm.startPrank(owner);
-        p.setTokenRegistry(address(0xdead));
-        p.setTokenLimiter(address(0xbeef));
-        vm.stopPrank();
-        assertEq(p.tokenRegistry(), address(0xdead), "registry is outside the seal");
-        assertEq(p.tokenLimiter(), address(0xbeef), "limiter is outside the seal");
+        p.isSealed(32);
     }
 
     // =====================================================================

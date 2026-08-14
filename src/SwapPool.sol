@@ -58,12 +58,17 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     uint8 constant FEE_STATE = 1;
     uint8 constant FEEADDRESS_STATE = 2;
     uint8 constant QUOTER_STATE = 4;
+    uint8 constant REGISTRY_STATE = 8;
+    uint8 constant LIMITER_STATE = 16;
 
-    uint8 public constant maxSealState = 7;
+    uint8 public constant maxSealState = 31;
 
     // Reserved so that a later variable cannot be packed beside sealState
     uint240 private __sealSlotPadding;
-    uint256[49] private __gap;
+    // Written at initialize (and when a legacy pool first becomes fully sealed)
+    // so raising maxSealState in a later implementation is not a silent unseal.
+    uint8 public fullSealMask;
+    uint256[48] private __gap;
 
     // Implements Seal
     event SealStateChange(bool indexed _final, uint256 _sealState);
@@ -115,6 +120,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         quoter = quoter_;
         feesDecoupled = feesDecoupled_;
         protocolFeeController = protocolFeeController_;
+        fullSealMask = maxSealState;
     }
 
     function decimals() public view override returns (uint8) {
@@ -133,16 +139,27 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         if (_state > maxSealState) revert InvalidState();
         if (_state & sealState != 0) revert AlreadyLocked();
         sealState |= _state;
-        emit SealStateChange(sealState & maxSealState == maxSealState, sealState);
+        uint8 mask = _fullSealMask();
+        if (fullSealMask == 0 && (sealState & maxSealState) == maxSealState) {
+            fullSealMask = maxSealState;
+            mask = maxSealState;
+        }
+        emit SealStateChange(sealState & mask == mask, sealState);
         return sealState;
     }
 
     function isSealed(uint8 _state) public view returns (bool) {
-        if (_state >= maxSealState) revert InvalidState();
+        if (_state > maxSealState) revert InvalidState();
         if (_state == 0) {
-            return sealState & maxSealState == maxSealState;
+            uint8 mask = _fullSealMask();
+            return sealState & mask == mask;
         }
         return _state & sealState == _state;
+    }
+
+    function _fullSealMask() private view returns (uint8) {
+        uint8 mask = fullSealMask;
+        return mask == 0 ? maxSealState : mask;
     }
 
     function setFeeAddress(address _feeAddress) public onlyOwner {
@@ -161,10 +178,12 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     }
 
     function setTokenRegistry(address _tokenRegistry) public onlyOwner {
+        if (isSealed(REGISTRY_STATE)) revert Sealed();
         tokenRegistry = _tokenRegistry;
     }
 
     function setTokenLimiter(address _tokenLimiter) public onlyOwner {
+        if (isSealed(LIMITER_STATE)) revert Sealed();
         tokenLimiter = _tokenLimiter;
     }
 

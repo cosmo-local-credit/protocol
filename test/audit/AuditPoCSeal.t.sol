@@ -92,27 +92,25 @@ contract AuditPoCSealTest is Test {
         p.seal(7);
         assertEq(p.sealState(), 7);
         vm.expectEmit(true, false, false, true);
-        emit SealStateChange(true, 7); // claims _final again
+        emit SealStateChange(false, 7); // not fully sealed until bits 8 and 16
         p.seal(0);
         vm.stopPrank();
     }
 
-    /// A2: isSealed() domain gap — every mask 0..6 is queryable but the one
-    ///     mask that names "everything", 7 == maxSealState, reverts.
-    function test_A2_isSealed_sevenReverts() public {
+    /// A2: isSealed() accepts every mask up to and including maxSealState.
+    ///     One past it reverts. (Previously isSealed(maxSealState) reverted.)
+    function test_A2_isSealed_acceptsFullMask() public {
         SwapPool p = _pool(address(0), false);
         vm.prank(owner);
-        p.seal(7);
+        p.seal(31);
 
-        assertTrue(p.isSealed(0), "isSealed(0) is the only full-seal query");
+        assertTrue(p.isSealed(0), "isSealed(0) is the full-seal query");
         assertTrue(p.isSealed(1));
-        assertTrue(p.isSealed(3));
-        assertTrue(p.isSealed(5));
-        assertTrue(p.isSealed(6));
-        // The natural query reverts even though seal(7) was legal.
+        assertTrue(p.isSealed(7));
+        assertTrue(p.isSealed(31));
         vm.expectRevert(SwapPool.InvalidState.selector);
-        p.isSealed(7);
-        assertEq(p.maxSealState(), 7);
+        p.isSealed(32);
+        assertEq(p.maxSealState(), 31);
     }
 
     /// A3: partial overlap makes combined masks unusable - after sealing bit 1
@@ -128,11 +126,9 @@ contract AuditPoCSealTest is Test {
         vm.stopPrank();
     }
 
-    /// A4: a FULLY SEALED pool (isSealed(0) == true) still lets the owner
-    ///     rewrite tokenRegistry and tokenLimiter, the two fields that decide
-    ///     which tokens have value. Result: pool drained by a worthless but
-    ///     otherwise perfectly honest ERC20, at the sealed quoter's 1:1 rate.
-    function test_A4_fullySealedPool_registryAndLimiterStillMutable() public {
+    /// A4 (FIXED): a fully sealed pool cannot rewrite tokenRegistry or
+    ///     tokenLimiter, so an honest junk ERC20 cannot drain it.
+    function test_A4_fullySealedPool_registryAndLimiterAreSealed() public {
         VsERC20 real = new VsERC20("Real", "REAL", 18);
         VsERC20 junk = new VsERC20("Junk", "JUNK", 18);
 
@@ -141,10 +137,9 @@ contract AuditPoCSealTest is Test {
         real.mint(address(p), 100_000e18);
 
         vm.prank(owner);
-        p.seal(7);
+        p.seal(31);
         assertTrue(p.isSealed(0), "pool is fully sealed");
 
-        // junk is NOT whitelisted, so the drain is blocked...
         junk.mint(attacker, 100_000e18);
         vm.startPrank(attacker);
         junk.approve(address(p), type(uint256).max);
@@ -152,23 +147,23 @@ contract AuditPoCSealTest is Test {
         p.withdraw(address(real), address(junk), 100_000e18);
         vm.stopPrank();
 
-        // ...until the owner flips the two UNSEALABLE fields.
         vm.startPrank(owner);
-        p.setTokenRegistry(address(0)); // no seal check at all
-        p.setTokenLimiter(address(0)); // no seal check at all
+        vm.expectRevert(SwapPool.Sealed.selector);
+        p.setTokenRegistry(address(0));
+        vm.expectRevert(SwapPool.Sealed.selector);
+        p.setTokenLimiter(address(0));
         vm.stopPrank();
 
-        // Now ANY caller, not just the owner, can drain it.
         vm.prank(attacker);
+        vm.expectRevert(SwapPool.UnauthorizedToken.selector);
         p.withdraw(address(real), address(junk), 100_000e18);
 
-        assertEq(real.balanceOf(attacker), 100_000e18, "sealed pool fully drained");
-        assertEq(junk.balanceOf(address(p)), 100_000e18, "paid for in worthless tokens");
+        assertEq(real.balanceOf(attacker), 0, "sealed pool untouched");
+        assertEq(real.balanceOf(address(p)), 100_000e18);
     }
 
-    /// A4b: the same two setters are also a permanent brick switch on a
-    ///      fully sealed pool.
-    function test_A4b_fullySealedPool_bricked() public {
+    /// A4b (FIXED): the same two setters cannot brick a fully sealed pool.
+    function test_A4b_fullySealedPool_cannotBeBrickedByRegistry() public {
         VsERC20 a = new VsERC20("A", "A", 18);
         VsERC20 b = new VsERC20("B", "B", 18);
         SwapPool p = _pool(address(0), false);
@@ -178,17 +173,19 @@ contract AuditPoCSealTest is Test {
         a.mint(user, 10e18);
 
         vm.prank(owner);
-        p.seal(7);
+        p.seal(31);
 
         VsRegistry deny = new VsRegistry(); // whitelists nothing
         vm.prank(owner);
+        vm.expectRevert(SwapPool.Sealed.selector);
         p.setTokenRegistry(address(deny));
 
         vm.startPrank(user);
         a.approve(address(p), type(uint256).max);
-        vm.expectRevert(SwapPool.UnauthorizedToken.selector);
         p.withdraw(address(b), address(a), 1e18);
         vm.stopPrank();
+
+        assertEq(b.balanceOf(user), 1e18, "honest swap still works");
     }
 
     // =====================================================================
@@ -274,12 +271,9 @@ contract AuditPoCSealTest is Test {
     // C. UPGRADE SAFETY
     // =====================================================================
 
-    /// C1: maxSealState is a `constant` compiled into the implementation, and
-    ///     isSealed(0) is defined as `sealState == maxSealState`. Adding a 4th
-    ///     seal bit in an upgrade (the natural fix for A4) silently flips every
-    ///     already-fully-sealed pool back to "not fully sealed", and re-opens
-    ///     seal() on a pool whose owner believed sealing was finished.
-    function test_C1_upgradeAddingSealBit_unsealsExistingPools() public {
+    /// C1 (FIXED): isSealed(0) uses the stored fullSealMask, so raising
+    ///     maxSealState in an upgrade does not flip already-fully-sealed pools.
+    function test_C1_upgradeAddingSealBit_keepsExistingPoolsSealed() public {
         ERC1967Factory factory = new ERC1967Factory();
         address admin = makeAddr("proxyAdmin");
 
@@ -302,22 +296,18 @@ contract AuditPoCSealTest is Test {
         SwapPool p = SwapPool(factory.deployAndCall(address(poolImpl), admin, initData));
 
         vm.prank(owner);
-        p.seal(7);
+        p.seal(31);
         assertTrue(p.isSealed(0), "V1: fully sealed");
+        assertEq(p.fullSealMask(), 31);
 
-        // In-place upgrade to a V2 that adds a 4th sealable field.
         VsSwapPoolV2 v2 = new VsSwapPoolV2();
         vm.prank(admin);
         factory.upgrade(address(p), address(v2));
 
-        assertEq(uint256(VsSwapPoolV2(address(p)).sealState()), 7, "storage untouched");
-        assertEq(uint256(VsSwapPoolV2(address(p)).maxSealState()), 15, "constant changed with the code");
-        assertFalse(VsSwapPoolV2(address(p)).isSealed(0), "REGRESSION: no longer 'fully sealed'");
-
-        // And seal() is live again on a pool that was supposed to be finished.
-        vm.prank(owner);
-        VsSwapPoolV2(address(p)).seal(8);
-        assertTrue(VsSwapPoolV2(address(p)).isSealed(0));
+        assertEq(uint256(VsSwapPoolV2(address(p)).sealState()), 31, "storage untouched");
+        assertEq(uint256(VsSwapPoolV2(address(p)).maxSealState()), 63, "constant changed with the code");
+        assertEq(uint256(VsSwapPoolV2(address(p)).fullSealMask()), 31, "mask stays at the sealed-in definition");
+        assertTrue(VsSwapPoolV2(address(p)).isSealed(0), "still fully sealed under the stored mask");
     }
 
     /// C2: sealState is the LAST declared variable and shares slot 10 with
@@ -347,8 +337,8 @@ contract AuditPoCSealTest is Test {
         SwapPool p = SwapPool(factory.deployAndCall(address(poolImpl), admin, initData));
 
         vm.prank(owner);
-        p.seal(7);
-        assertEq(vm.load(address(p), bytes32(uint256(10))), bytes32(uint256(0x0701)));
+        p.seal(31);
+        assertEq(vm.load(address(p), bytes32(uint256(10))), bytes32(uint256(0x1f01)));
 
         VsSwapPoolV3 v3 = new VsSwapPoolV3();
         vm.prank(admin);
@@ -362,10 +352,9 @@ contract AuditPoCSealTest is Test {
         assertEq(VsSwapPoolV3(address(p)).quoter(), address(0xdead));
     }
 
-    /// C2b: THE OUTRIGHT CIRCUMVENTION. cmd/ge-publish defaults the ERC1967
-    ///      proxy admin to the pool owner (`admin := owner`), so the key that
-    ///      calls seal() is also the key that can replace the implementation
-    ///      with one that ignores sealState. The seal is not a commitment.
+    /// C2b (residual): an upgrade still defeats seal if the proxy admin is the
+    ///      owner. ge-publish now refuses that default; this records that the
+    ///      EVM path remains if an operator ignores the tooling check.
     function test_C2b_sealCircumventedByUpgrade_sameKey() public {
         ERC1967Factory factory = new ERC1967Factory();
         address ownerAndAdmin = owner; // == the tooling default
@@ -389,7 +378,7 @@ contract AuditPoCSealTest is Test {
         SwapPool p = SwapPool(factory.deployAndCall(address(poolImpl), ownerAndAdmin, initData));
 
         vm.startPrank(ownerAndAdmin);
-        p.seal(7);
+        p.seal(31);
         assertTrue(p.isSealed(0), "publicly verifiable: fully sealed forever");
         vm.expectRevert(SwapPool.Sealed.selector);
         p.setQuoter(address(0xdead));
@@ -410,7 +399,7 @@ contract AuditPoCSealTest is Test {
 
         assertEq(VsSwapPoolNoSeal(address(p)).quoter(), address(0xdead));
         assertEq(VsSwapPoolNoSeal(address(p)).feeAddress(), address(0xdead));
-        assertEq(uint256(VsSwapPoolNoSeal(address(p)).sealState()), 7, "sealState still says 7");
+        assertEq(uint256(VsSwapPoolNoSeal(address(p)).sealState()), 31, "sealState still says 31");
     }
 
     /// C3: initialize() has no caller restriction. The shipped tooling deploys
@@ -449,8 +438,9 @@ contract AuditPoCSealTest is Test {
     // =====================================================================
 
     /// D1: a registry with a permissive fallback that returns a truthy word
-    ///     silently whitelists EVERY token. No returndatasize check, no
-    ///     interface check, and setTokenRegistry is not sealable.
+    ///     silently whitelists EVERY token. No returndatasize check and no
+    ///     interface check. The registry is still writable here because this
+    ///     pool is unsealed.
     function test_D1_fallbackRegistry_whitelistsEverything() public {
         VsERC20 junk = new VsERC20("Junk", "JUNK", 18);
         VsERC20 real = new VsERC20("Real", "REAL", 18);
@@ -1185,8 +1175,8 @@ contract VsTracer {
 
 // ---------------------------------------------------- upgrade-hazard variants
 
-/// V2: identical storage layout, but a 4th sealable field is introduced, so
-/// maxSealState becomes 15. Only the constant changed.
+/// V2: same storage as SwapPool, maxSealState raised to 63. isSealed(0) still
+/// reads the stored fullSealMask so already-sealed pools stay sealed.
 contract VsSwapPoolV2 is Ownable, Initializable {
     error Sealed();
     error InvalidState();
@@ -1204,8 +1194,10 @@ contract VsSwapPoolV2 is Ownable, Initializable {
     mapping(address => uint256) public fees;
     bool public feesDecoupled;
     uint8 public sealState;
+    uint240 private __sealSlotPadding;
+    uint8 public fullSealMask;
 
-    uint8 public constant maxSealState = 15; // was 7
+    uint8 public constant maxSealState = 63; // was 31
 
     event SealStateChange(bool indexed _final, uint256 _sealState);
 
@@ -1213,13 +1205,17 @@ contract VsSwapPoolV2 is Ownable, Initializable {
         if (_state > maxSealState) revert InvalidState();
         if (_state & sealState != 0) revert AlreadyLocked();
         sealState |= _state;
-        emit SealStateChange(sealState == maxSealState, sealState);
+        uint8 mask = fullSealMask == 0 ? maxSealState : fullSealMask;
+        emit SealStateChange(sealState & mask == mask, sealState);
         return sealState;
     }
 
     function isSealed(uint8 _state) public view returns (bool) {
-        if (_state >= maxSealState) revert InvalidState();
-        if (_state == 0) return sealState == maxSealState;
+        if (_state > maxSealState) revert InvalidState();
+        if (_state == 0) {
+            uint8 mask = fullSealMask == 0 ? maxSealState : fullSealMask;
+            return sealState & mask == mask;
+        }
         return _state & sealState == _state;
     }
 }

@@ -108,6 +108,8 @@ contract SwapPoolTest is Test {
         assertEq(pool.name(), "Swap Pool");
         assertEq(pool.symbol(), "SWAP");
         assertEq(pool.decimals(), 18);
+        assertEq(pool.fullSealMask(), 31);
+        assertEq(pool.maxSealState(), 31);
         assertEq(pool.owner(), owner);
         assertEq(pool.feePolicy(), address(feePolicy));
         assertEq(pool.feeAddress(), feeAddress);
@@ -560,16 +562,29 @@ contract SwapPoolTest is Test {
 
         pool.seal(1);
         pool.seal(2);
+        pool.seal(4);
+        pool.seal(8);
 
         vm.expectEmit(true, false, false, true);
-        emit SealStateChange(true, 7);
+        emit SealStateChange(true, 31);
 
-        pool.seal(4);
+        pool.seal(16);
 
         assertTrue(pool.isSealed(0)); // Fully sealed
-        assertEq(pool.sealState(), 7);
+        assertEq(pool.sealState(), 31);
+        assertTrue(pool.isSealed(31));
 
         vm.stopPrank();
+    }
+
+    function test_seal_originalThreeBits_isNotFullySealed() public {
+        vm.startPrank(owner);
+        pool.seal(7);
+        vm.stopPrank();
+
+        assertEq(pool.sealState(), 7);
+        assertFalse(pool.isSealed(0), "registry and limiter bits are still open");
+        assertTrue(pool.isSealed(7));
     }
 
     function test_seal_revertIf_already_sealed() public {
@@ -586,7 +601,7 @@ contract SwapPoolTest is Test {
     function test_seal_revertIf_invalid_state() public {
         vm.prank(owner);
         vm.expectRevert(InvalidState.selector);
-        pool.seal(8);
+        pool.seal(32);
     }
 
     function test_seal_revertIf_not_owner() public {
@@ -668,6 +683,37 @@ contract SwapPoolTest is Test {
         pool.setTokenLimiter(newLimiter);
 
         assertEq(pool.tokenLimiter(), newLimiter);
+    }
+
+    function test_setTokenRegistry_revertIf_sealed() public {
+        vm.startPrank(owner);
+        pool.seal(8);
+        vm.expectRevert(Sealed.selector);
+        pool.setTokenRegistry(address(0));
+        vm.stopPrank();
+    }
+
+    function test_setTokenLimiter_revertIf_sealed() public {
+        vm.startPrank(owner);
+        pool.seal(16);
+        vm.expectRevert(Sealed.selector);
+        pool.setTokenLimiter(address(0));
+        vm.stopPrank();
+    }
+
+    function test_fullySealedPool_cannotClearRegistryOrLimiter() public {
+        vm.startPrank(owner);
+        pool.seal(31);
+        assertTrue(pool.isSealed(0));
+
+        vm.expectRevert(Sealed.selector);
+        pool.setTokenRegistry(address(0));
+        vm.expectRevert(Sealed.selector);
+        pool.setTokenLimiter(address(0));
+        vm.stopPrank();
+
+        assertEq(pool.tokenRegistry(), address(tokenRegistry));
+        assertEq(pool.tokenLimiter(), address(limiter));
     }
 
     function test_setters_revertIf_not_owner() public {
