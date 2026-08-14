@@ -728,16 +728,25 @@ contract AuditPoCSealTest is Test {
         b.mint(address(p), 1_000e18);
         a.mint(user, 100e18);
 
-        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        // Both directions now reject the configuration by the same predicate,
+        // and name the cause rather than the symptom.
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         p.getAmountOut(address(b), address(a), 100e18);
 
         vm.expectRevert(SwapPool.FeeTooHigh.selector);
         p.getAmountIn(address(b), address(a), 1e18);
 
+        // Including at dust, where both fees would otherwise floor to zero and
+        // slip past an amount-only check.
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
+        p.getAmountOut(address(b), address(a), 1);
+
         vm.startPrank(user);
         a.approve(address(p), type(uint256).max);
-        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         p.withdraw(address(b), address(a), 100e18);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
+        p.withdraw(address(b), address(a), 1);
         vm.stopPrank();
 
         assertEq(a.balanceOf(user), 100e18, "input not taken");

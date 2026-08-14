@@ -230,6 +230,8 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     // Calculate the amount of output tokens received for a given input amount
     // Returns the net amount after all fees are deducted (including protocol fee)
     function getAmountOut(address _outToken, address _inToken, uint256 _amountIn) public returns (uint256) {
+        _mustFeeDomain(_inToken, _outToken);
+
         uint256 quotedValue = getQuote(_outToken, _inToken, _amountIn);
         uint256 totalFee = getFee(_inToken, _outToken, quotedValue);
         uint256 protocolFee = _calcProtocolFee(quotedValue, totalFee);
@@ -261,6 +263,19 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         return amountIn + 1;
     }
 
+    // The pool fee and the protocol fee are set by two contracts with separate
+    // owners, neither of which can see the other's value. Only the pool can
+    // evaluate the joint constraint, and both swap directions test the same
+    // predicate so that a rejected configuration is rejected either way round.
+    function _mustFeeDomain(address _inToken, address _outToken) private view {
+        uint256 feePpm = feePolicy == address(0) ? 0 : IFeePolicy(feePolicy).getFee(_inToken, _outToken);
+        _mustFeeDomainPpm(feePpm, _getProtocolFeePpm());
+    }
+
+    function _mustFeeDomainPpm(uint256 _feePpm, uint256 _protocolFeePpm) private pure {
+        if (_feePpm >= DEFAULT_FEE_PPM && _feePpm * (PPM + _protocolFeePpm) >= PPM * PPM) revert FeeTooHigh();
+    }
+
     // Extract protocol fee PPM, returning 0 if controller is unset or recipient is zero
     function _getProtocolFeePpm() internal view returns (uint256) {
         if (protocolFeeController == address(0)) return 0;
@@ -283,9 +298,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
             return _netOutput;
         }
 
-        if (_feePpm >= DEFAULT_FEE_PPM && _feePpm * (PPM + _protocolFeePpm) >= PPM * PPM) {
-            revert FeeTooHigh();
-        }
+        _mustFeeDomainPpm(_feePpm, _protocolFeePpm);
 
         // The protocol fee is based on max(totalFee, assumedFee) where assumedFee uses DEFAULT_FEE_PPM
         // Two cases based on whether pool fee >= DEFAULT_FEE_PPM (the floor)
@@ -350,6 +363,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         returns (uint256 netValue)
     {
         if (_inToken == _outToken) revert InvalidToken();
+        _mustFeeDomain(_inToken, _outToken);
 
         uint256 received = _deposit(_inToken, _value);
 

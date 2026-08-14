@@ -107,7 +107,7 @@ Queries:
 - `isSealed(state)`: pass a seal bit or combination (1, 2, 4, 8, 16, or 31) to check if those fields are locked, or pass `0` to check if the pool is fully sealed under `fullSealMask`. Reverts with `InvalidState` if `state > maxSealState`.
 - `getQuote(tokenOut, tokenIn, value)`: raw quoted output from the quoter, before any fees.
 - `getFee(inToken, outToken, value)`: pool fee amount for a given quoted value.
-- `getAmountOut(tokenOut, tokenIn, amountIn)`: net output after pool fee and protocol fee.
+- `getAmountOut(tokenOut, tokenIn, amountIn)`: net output after pool fee and protocol fee. Reverts rather than returning `0`: `FeeTooHigh` if the configured fees are outside the joint domain, `InsufficientOutput` if the quote truncates to nothing at this size. Quote a larger `amountIn` instead of treating a zero as a tradeable price.
 - `getAmountIn(tokenOut, tokenIn, amountOut)`: input required to receive a desired net output. Accounts for pool fee, protocol fee, and the quoter, and adds a +1 wei rounding safety margin.
 
 **Seal States**
@@ -146,7 +146,7 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 - `effectiveFee = max(totalFee, assumedFee)` where `assumedFee = quotedValue * DEFAULT_FEE_PPM / PPM` (the 1% floor).
 - The floor stops a pool operator from setting a tiny pool fee just to shrink the protocol's cut.
 - The protocol fee is skipped entirely if `protocolFeeController` is unset, `protocolFeePpm` is 0, or the protocol recipient is the zero address.
-- The two fees are a joint constraint: `feePpm * (PPM + protocolFeePpm)` must be strictly less than `PPM²` whenever `feePpm >= DEFAULT_FEE_PPM`. Neither `FeePolicy` nor `ProtocolFeeController` can evaluate that alone. `SwapPool` rejects the combination with `FeeTooHigh` rather than panicking or paying out zero. A quote that would settle at `netValue == 0` reverts `InsufficientOutput`.
+- The two fees are a joint constraint: `feePpm * (PPM + protocolFeePpm)` must be strictly less than `PPM²` whenever `feePpm >= DEFAULT_FEE_PPM`. Neither `FeePolicy` nor `ProtocolFeeController` can evaluate that alone. `SwapPool` rejects the combination with `FeeTooHigh` rather than panicking or paying out zero. Both directions test that same predicate on the rates before touching any amount, so a configuration rejected by `getAmountIn` is rejected by `getAmountOut` and `withdraw` at every size — including amounts small enough for both fees to round down to zero. A quote that is inside the domain but still settles at `netValue == 0` reverts `InsufficientOutput`.
 
 **Fee Modes**
 
@@ -406,6 +406,7 @@ struct Hop {
 
 **Errors:**
 - `EmptyPath`: the `path` array is empty.
+- Any error raised by a pool on the path. Since `getAmountOut` and `getAmountIn` revert rather than reporting a zero-output or out-of-domain quote, a route containing such a hop makes the whole quote revert instead of returning `0`.
 
 **How it works:**
 

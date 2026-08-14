@@ -660,7 +660,7 @@ contract AuditPoCTest is Test {
     // F-11  _swap has no minimum-output check, so a quote that truncates to
     //       zero consumes the caller's input and transfers nothing back.
     // =====================================================================
-    function test_POC_F11_zeroQuoteConsumesInputForNothing() public {
+    function test_L5_zeroQuoteRevertsInsteadOfConsumingInput() public {
         AudERC20 big = new AudERC20("Big", "BIG", 18);
         AudERC20 small = new AudERC20("Small", "SML", 6);
         DecimalQuoter dq = new DecimalQuoter();
@@ -674,17 +674,25 @@ contract AuditPoCTest is Test {
         big.mint(attacker, 1e18);
 
         // Anything below 1e12 wei of an 18-decimal input rounds to 0 of a
-        // 6-decimal output.
+        // 6-decimal output. The quote no longer reports that as a valid 0.
         uint256 dust = 999_999_999_999;
-        assertEq(p.getAmountOut(address(small), address(big), dust), 0, "quote is zero");
+        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        p.getAmountOut(address(small), address(big), dust);
 
         vm.startPrank(attacker);
         big.approve(address(p), type(uint256).max);
-        p.withdraw(address(small), address(big), dust); // succeeds
+        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        p.withdraw(address(small), address(big), dust);
         vm.stopPrank();
 
-        assertEq(big.balanceOf(attacker), 1e18 - dust, "input was taken");
-        assertEq(small.balanceOf(attacker), 0, "nothing came back");
+        assertEq(big.balanceOf(attacker), 1e18, "input was not taken");
+        assertEq(small.balanceOf(attacker), 0);
+
+        // One wei more of input clears the truncation and settles normally.
+        vm.startPrank(attacker);
+        p.withdraw(address(small), address(big), dust + 1);
+        vm.stopPrank();
+        assertGt(small.balanceOf(attacker), 0, "a quote that does not truncate still works");
     }
 
     // =====================================================================

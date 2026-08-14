@@ -1236,7 +1236,7 @@ contract SwapPoolTest is Test {
         protocolFeeController.setProtocolRecipient(makeAddr("proto"));
         feePolicy.setFee(address(tokenA), address(tokenB), 800_000);
 
-        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         pool.getAmountOut(address(tokenB), address(tokenA), 100e18);
 
         vm.expectRevert(SwapPool.FeeTooHigh.selector);
@@ -1244,12 +1244,38 @@ contract SwapPoolTest is Test {
 
         vm.startPrank(user1);
         tokenA.approve(address(pool), 100e18);
-        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         pool.withdraw(address(tokenB), address(tokenA), 100e18);
         vm.stopPrank();
 
         assertEq(tokenA.balanceOf(user1), 10000e18, "input was not taken");
         assertEq(tokenB.balanceOf(user1), 10000e18);
+    }
+
+    /// The forward and reverse directions must agree at every magnitude. An
+    /// amount-only guard misses dust, where both fees floor to zero.
+    function test_feeDomain_directionsAgreeAtDust() public {
+        protocolFeeController.setProtocolFee(250_000);
+        protocolFeeController.setProtocolRecipient(makeAddr("proto"));
+        feePolicy.setFee(address(tokenA), address(tokenB), 800_000);
+
+        for (uint256 i = 0; i < 4; i++) {
+            uint256 amount = [uint256(1), 10, 1e6, 100e18][i];
+
+            vm.expectRevert(SwapPool.FeeTooHigh.selector);
+            pool.getAmountOut(address(tokenB), address(tokenA), amount);
+
+            vm.expectRevert(SwapPool.FeeTooHigh.selector);
+            pool.getAmountIn(address(tokenB), address(tokenA), amount);
+
+            vm.startPrank(user1);
+            tokenA.approve(address(pool), amount);
+            vm.expectRevert(SwapPool.FeeTooHigh.selector);
+            pool.withdraw(address(tokenB), address(tokenA), amount);
+            vm.stopPrank();
+        }
+
+        assertEq(tokenA.balanceOf(user1), 10000e18, "no input was taken at any size");
     }
 
     function test_feeDomain_overBound_revertsFeeTooHigh() public {
