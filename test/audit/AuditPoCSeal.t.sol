@@ -709,12 +709,10 @@ contract AuditPoCSealTest is Test {
         assertEq(failures, 0);
     }
 
-    /// F5: THE DOMAIN GAP. The reverse denominator is PPM^2 - f*(PPM + p).
-    ///     At f*(PPM+p) == PPM^2 exactly it is ZERO, so getAmountIn panics with
-    ///     division-by-zero while getAmountOut happily returns 0 and the swap
-    ///     succeeds while paying the user nothing. Neither f nor p is anywhere
-    ///     near 100%: 80% pool fee + 25% protocol fee is enough.
-    function test_F5_denominatorZero_forwardSucceedsReversePanics() public {
+    /// F5 (FIXED): at f*(PPM+p) == PPM^2 the reverse path reverts FeeTooHigh
+    ///     and the forward path / swap revert InsufficientOutput. The user's
+    ///     input is not taken.
+    function test_F5_denominatorZero_revertsNamedError() public {
         VsERC20 a = new VsERC20("A", "A", 18);
         VsERC20 b = new VsERC20("B", "B", 18);
         SwapPool p = _pool(address(0), false);
@@ -725,34 +723,32 @@ contract AuditPoCSealTest is Test {
         pfc.setFee(250_000); // 25% protocol fee
         address proto = makeAddr("proto");
         pfc.setRecipient(proto);
-        // 800_000 * (1_000_000 + 250_000) == 1_000_000^2  =>  denominator == 0
         assertEq(800_000 * (PPM + 250_000), PPM * PPM);
 
         b.mint(address(p), 1_000e18);
         a.mint(user, 100e18);
 
-        // Forward path: no revert, quotes zero.
-        assertEq(p.getAmountOut(address(b), address(a), 100e18), 0, "quotes 0 out");
+        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        p.getAmountOut(address(b), address(a), 100e18);
 
-        // Reverse path: hard panic.
-        vm.expectRevert(stdError.divisionError);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         p.getAmountIn(address(b), address(a), 1e18);
 
-        // ...and the swap SUCCEEDS, taking 100% of the user's input.
         vm.startPrank(user);
         a.approve(address(p), type(uint256).max);
+        vm.expectRevert(SwapPool.InsufficientOutput.selector);
         p.withdraw(address(b), address(a), 100e18);
         vm.stopPrank();
-        assertEq(b.balanceOf(user), 0, "user paid 100 A and received 0 B");
-        assertEq(p.fees(address(b)), 80e18);
-        assertEq(b.balanceOf(proto), 20e18);
+
+        assertEq(a.balanceOf(user), 100e18, "input not taken");
+        assertEq(b.balanceOf(user), 0);
+        assertEq(p.fees(address(b)), 0);
+        assertEq(b.balanceOf(proto), 0);
     }
 
-    /// F6: the safe pool-fee bound is a function of the PROTOCOL fee, so the
-    ///     ProtocolFeeController owner (a different principal from the pool
-    ///     operator) can retroactively brick getAmountIn / quoteExactOutput on
-    ///     already-deployed pools by raising the protocol fee.
-    function test_F6_protocolFeeOwner_bricksReverseQuotesOfLivePools() public {
+    /// F6 (FIXED): a protocol-fee bump that pushes a live pool out of domain
+    ///     reverts FeeTooHigh instead of Panic(0x11), and does not take input.
+    function test_F6_protocolFeeOwner_outOfDomainRevertsFeeTooHigh() public {
         VsERC20 a = new VsERC20("A", "A", 18);
         VsERC20 b = new VsERC20("B", "B", 18);
         SwapPool p = _pool(address(0), false);
@@ -764,28 +760,23 @@ contract AuditPoCSealTest is Test {
         pfc.setFee(100_000); // 10%
         pfc.setRecipient(makeAddr("proto"));
 
-        // Healthy today.
         uint256 before = p.getAmountIn(address(b), address(a), 1e18);
         assertGt(before, 0);
 
-        // Protocol raises its own fee. Bound is f >= PPM^2/(PPM+p):
-        //   p = 10%  -> 909_091   (pool at 60% is fine)
-        //   p = 70%  -> 588_236   (pool at 60% now breaks)
         pfc.setFee(700_000);
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         p.getAmountIn(address(b), address(a), 1e18);
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         p.getAmountOut(address(b), address(a), 1e18);
 
-        // And every swap on the pool is now bricked too.
         a.mint(user, 10e18);
         vm.startPrank(user);
         a.approve(address(p), type(uint256).max);
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         p.withdraw(address(b), address(a), 1e18);
         vm.stopPrank();
 
-        emit log_string("bound: f >= PPM^2/(PPM+p) breaks; at p=100% that is only f>=500_000");
+        assertEq(a.balanceOf(user), 10e18, "input not taken");
     }
 
     /// F7: map the boundary explicitly.

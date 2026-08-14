@@ -146,6 +146,7 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 - `effectiveFee = max(totalFee, assumedFee)` where `assumedFee = quotedValue * DEFAULT_FEE_PPM / PPM` (the 1% floor).
 - The floor stops a pool operator from setting a tiny pool fee just to shrink the protocol's cut.
 - The protocol fee is skipped entirely if `protocolFeeController` is unset, `protocolFeePpm` is 0, or the protocol recipient is the zero address.
+- The two fees are a joint constraint: `feePpm * (PPM + protocolFeePpm)` must be strictly less than `PPM²` whenever `feePpm >= DEFAULT_FEE_PPM`. Neither `FeePolicy` nor `ProtocolFeeController` can evaluate that alone. `SwapPool` rejects the combination with `FeeTooHigh` rather than panicking or paying out zero. A quote that would settle at `netValue == 0` reverts `InsufficientOutput`.
 
 **Fee Modes**
 
@@ -164,7 +165,8 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 - `InvalidRecipient`: the `recipient` argument is the zero address.
 - `InvalidToken`: `tokenIn` and `tokenOut` are the same token.
 - `Expired`: the bounded swap's `deadline` has passed.
-- `InsufficientOutput`: the bounded swap would settle below `minAmountOut`.
+- `InsufficientOutput`: the bounded swap would settle below `minAmountOut`, or any swap would pay the recipient nothing.
+- `FeeTooHigh`: the pool fee and protocol fee together consume the quote (or would make the reverse-quote denominator zero or negative).
 - `Reentrancy`: a token hook re-entered `deposit` or a swap while one was still in flight.
 - `InvalidFeeAddress`: `feeAddress` is the zero address when collecting fees.
 - `InsufficientBalance`: the pool lacks enough `tokenOut` liquidity.

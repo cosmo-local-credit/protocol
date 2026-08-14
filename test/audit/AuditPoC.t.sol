@@ -476,7 +476,7 @@ contract AuditPoCTest is Test {
     // F-06  A pool fee above ~90.9% makes the netValue subtraction (and the
     //       reverse-fee denominator) underflow, bricking swaps and quotes.
     // =====================================================================
-    function test_POC_F06_highPoolFee_bricksSwapsAndQuotes() public {
+    function test_M5_highPoolFee_revertsFeeTooHigh() public {
         AudERC20 a = new AudERC20("A", "A", 18);
         AudERC20 b = new AudERC20("B", "B", 18);
 
@@ -491,20 +491,20 @@ contract AuditPoCTest is Test {
         b.mint(address(p), 100_000e18);
         a.mint(attacker, 1_000e18);
 
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         p.getAmountOut(address(b), address(a), 1_000e18);
 
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         p.getAmountIn(address(b), address(a), 1e18);
 
         vm.startPrank(attacker);
         a.approve(address(p), type(uint256).max);
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
         p.withdraw(address(b), address(a), 1_000e18);
         vm.stopPrank();
 
-        // One PPM lower and all three paths work, so the cliff is one PPM wide
-        // and gives the operator no signal.
+        assertEq(a.balanceOf(attacker), 1_000e18, "input not taken");
+
         feePolicy.setFee(address(a), address(b), 909_090);
         assertGt(p.getAmountOut(address(b), address(a), 1_000e18), 0);
         assertGt(p.getAmountIn(address(b), address(a), 1e18), 0);

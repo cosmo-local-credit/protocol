@@ -1230,6 +1230,72 @@ contract SwapPoolTest is Test {
         vm.stopPrank();
     }
 
+    function test_feeDomain_equalityPaysNothing_reverts() public {
+        // 80% pool + 25% protocol => fees consume the quote exactly.
+        protocolFeeController.setProtocolFee(250_000);
+        protocolFeeController.setProtocolRecipient(makeAddr("proto"));
+        feePolicy.setFee(address(tokenA), address(tokenB), 800_000);
+
+        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        pool.getAmountOut(address(tokenB), address(tokenA), 100e18);
+
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
+        pool.getAmountIn(address(tokenB), address(tokenA), 1e18);
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), 100e18);
+        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        pool.withdraw(address(tokenB), address(tokenA), 100e18);
+        vm.stopPrank();
+
+        assertEq(tokenA.balanceOf(user1), 10000e18, "input was not taken");
+        assertEq(tokenB.balanceOf(user1), 10000e18);
+    }
+
+    function test_feeDomain_overBound_revertsFeeTooHigh() public {
+        _setupProtocolFeeTest(909_091); // one PPM past the 10% protocol bound
+
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
+        pool.getAmountOut(address(tokenB), address(tokenA), 100e18);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
+        pool.getAmountIn(address(tokenB), address(tokenA), 1e18);
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), 100e18);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
+        pool.withdraw(address(tokenB), address(tokenA), 100e18);
+        vm.stopPrank();
+
+        assertEq(tokenA.balanceOf(user1), 10000e18);
+    }
+
+    function test_feeDomain_justBelowBound_stillQuotesAndSwaps() public {
+        _setupProtocolFeeTest(909_090);
+
+        uint256 out = pool.getAmountOut(address(tokenB), address(tokenA), 100e18);
+        assertGt(out, 0);
+        assertGt(pool.getAmountIn(address(tokenB), address(tokenA), 1e18), 0);
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), 100e18);
+        assertEq(pool.withdraw(address(tokenB), address(tokenA), 100e18), out);
+        vm.stopPrank();
+    }
+
+    function test_feeDomain_protocolFeeBump_revertsRatherThanPanic() public {
+        feePolicy.setFee(address(tokenA), address(tokenB), 600_000);
+        protocolFeeController.setProtocolFee(100_000);
+        protocolFeeController.setProtocolRecipient(makeAddr("proto"));
+        assertGt(pool.getAmountOut(address(tokenB), address(tokenA), 100e18), 0);
+
+        protocolFeeController.setProtocolFee(700_000);
+
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
+        pool.getAmountOut(address(tokenB), address(tokenA), 100e18);
+        vm.expectRevert(SwapPool.FeeTooHigh.selector);
+        pool.getAmountIn(address(tokenB), address(tokenA), 1e18);
+    }
+
     function test_unboundedSwap_returnsNetValue() public {
         feePolicy.setFee(address(tokenA), address(tokenB), 10_000); // 1%
 

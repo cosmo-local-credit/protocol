@@ -31,6 +31,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     error InvalidToken();
     error Expired();
     error InsufficientOutput();
+    error FeeTooHigh();
 
     address public tokenRegistry;
     address public tokenLimiter;
@@ -232,7 +233,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         uint256 quotedValue = getQuote(_outToken, _inToken, _amountIn);
         uint256 totalFee = getFee(_inToken, _outToken, quotedValue);
         uint256 protocolFee = _calcProtocolFee(quotedValue, totalFee);
-        return quotedValue - totalFee - protocolFee;
+        return _netAfterFees(quotedValue, totalFee, protocolFee);
     }
 
     // Calculate the amount of input tokens required to receive a desired output amount
@@ -280,6 +281,10 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     {
         if (_feePpm == 0 && _protocolFeePpm == 0) {
             return _netOutput;
+        }
+
+        if (_feePpm >= DEFAULT_FEE_PPM && _feePpm * (PPM + _protocolFeePpm) >= PPM * PPM) {
+            revert FeeTooHigh();
         }
 
         // The protocol fee is based on max(totalFee, assumedFee) where assumedFee uses DEFAULT_FEE_PPM
@@ -365,7 +370,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         // The pool owner always receives their full totalFee.
         // Floor at DEFAULT_FEE_PPM (1%) of quotedValue prevents gaming via tiny pool fees.
         uint256 protocolFee = _calcProtocolFee(quotedValue, totalFee);
-        netValue = quotedValue - totalFee - protocolFee;
+        netValue = _netAfterFees(quotedValue, totalFee, protocolFee);
 
         if (protocolFee > 0) {
             if (!IERC20(_outToken).transfer(_getProtocolRecipient(), protocolFee)) revert TransferFailed();
@@ -382,6 +387,16 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     function _getProtocolRecipient() internal view returns (address) {
         if (protocolFeeController == address(0)) return address(0);
         return IProtocolFeeController(protocolFeeController).getProtocolFeeRecipient();
+    }
+
+    function _netAfterFees(uint256 quotedValue, uint256 totalFee, uint256 protocolFee)
+        internal
+        pure
+        returns (uint256 netValue)
+    {
+        if (totalFee + protocolFee > quotedValue) revert FeeTooHigh();
+        netValue = quotedValue - totalFee - protocolFee;
+        if (netValue == 0) revert InsufficientOutput();
     }
 
     function _calcProtocolFee(uint256 quotedValue, uint256 totalFee) internal view returns (uint256) {
