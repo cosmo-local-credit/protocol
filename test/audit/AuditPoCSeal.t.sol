@@ -188,6 +188,64 @@ contract AuditPoCSealTest is Test {
         assertEq(b.balanceOf(user), 1e18, "honest swap still works");
     }
 
+    /// A5: bringing tokenRegistry and tokenLimiter under the bitmask created a
+    ///     second way to lose them: sealing a gate that was never configured
+    ///     would freeze the pool as permanently ungated while isSealed(0)
+    ///     advertised a complete seal, and any junk ERC20 could then drain it.
+    ///     seal() now requires each gate to hold an address before its bit can
+    ///     be locked, matching EthFaucet.seal().
+    function test_A5_sealingUnsetGates_isRejected() public {
+        VsERC20 real = new VsERC20("Real", "REAL", 18);
+        VsERC20 junk = new VsERC20("Junk", "JUNK", 18);
+
+        SwapPool p = SwapPool(LibClone.clone(address(poolImpl)));
+        p.initialize(
+            "Pool",
+            "P",
+            18,
+            owner,
+            address(feePolicy),
+            feeAddress,
+            address(0),
+            address(0),
+            address(0),
+            false,
+            address(pfc)
+        );
+        real.mint(address(p), 100_000e18);
+
+        vm.startPrank(owner);
+        vm.expectRevert(SwapPool.InvalidState.selector);
+        p.seal(31);
+        vm.expectRevert(SwapPool.InvalidState.selector);
+        p.seal(8);
+        vm.expectRevert(SwapPool.InvalidState.selector);
+        p.seal(16);
+        vm.stopPrank();
+
+        assertEq(p.sealState(), 0, "no gate bit was locked");
+        assertFalse(p.isSealed(0), "and the pool never claims a full seal");
+
+        // The owner's remedy is still open: wire the gates, then seal.
+        vm.startPrank(owner);
+        p.setTokenRegistry(address(registry));
+        p.setTokenLimiter(address(limiter));
+        assertEq(p.seal(31), 31);
+        vm.stopPrank();
+
+        // Which is what makes the seal worth anything: junk is now rejected
+        // and can never be admitted again.
+        junk.mint(attacker, 100_000e18);
+        vm.startPrank(attacker);
+        junk.approve(address(p), type(uint256).max);
+        vm.expectRevert(SwapPool.UnauthorizedToken.selector);
+        p.withdraw(address(real), address(junk), 100_000e18);
+        vm.stopPrank();
+
+        assertEq(real.balanceOf(attacker), 0, "sealed pool not drained");
+        assertEq(real.balanceOf(address(p)), 100_000e18, "pool intact");
+    }
+
     // =====================================================================
     // B. withdrawLiquidity vs fees[]
     // =====================================================================

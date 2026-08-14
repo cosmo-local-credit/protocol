@@ -716,6 +716,108 @@ contract SwapPoolTest is Test {
         assertEq(pool.tokenLimiter(), address(limiter));
     }
 
+    // ------------------------------------------------------------------
+    // A gate can only be sealed once it is actually configured, so a seal
+    // can never freeze the pool into an ungated state
+    // ------------------------------------------------------------------
+
+    function _ungatedPool() internal returns (SwapPool p) {
+        p = SwapPool(LibClone.clone(address(implementation)));
+        p.initialize(
+            "Ungated",
+            "UG",
+            18,
+            owner,
+            address(feePolicy),
+            feeAddress,
+            address(0),
+            address(0),
+            address(0),
+            false,
+            address(0)
+        );
+    }
+
+    function test_seal_revertIf_registryUnset() public {
+        SwapPool p = _ungatedPool();
+
+        vm.prank(owner);
+        vm.expectRevert(InvalidState.selector);
+        p.seal(8);
+
+        assertEq(p.sealState(), 0, "nothing was locked");
+    }
+
+    function test_seal_revertIf_limiterUnset() public {
+        SwapPool p = _ungatedPool();
+
+        vm.prank(owner);
+        vm.expectRevert(InvalidState.selector);
+        p.seal(16);
+    }
+
+    function test_seal_revertIf_fullMaskWithGatesUnset() public {
+        SwapPool p = _ungatedPool();
+
+        vm.prank(owner);
+        vm.expectRevert(InvalidState.selector);
+        p.seal(31);
+
+        assertEq(p.sealState(), 0);
+        assertFalse(p.isSealed(0), "an ungated pool can never report a full seal");
+    }
+
+    function test_seal_revertIf_anyBitInMaskIsUnset() public {
+        SwapPool p = _ungatedPool();
+
+        vm.startPrank(owner);
+        p.setTokenRegistry(address(tokenRegistry));
+
+        // Registry is configured, limiter is not: the whole mask is rejected.
+        vm.expectRevert(InvalidState.selector);
+        p.seal(24); // REGISTRY_STATE | LIMITER_STATE
+        vm.stopPrank();
+
+        assertEq(p.sealState(), 0);
+    }
+
+    function test_seal_revertIf_registryZeroedBeforeSealing() public {
+        vm.startPrank(owner);
+        pool.setTokenRegistry(address(0));
+
+        vm.expectRevert(InvalidState.selector);
+        pool.seal(8);
+        vm.expectRevert(InvalidState.selector);
+        pool.seal(31);
+        vm.stopPrank();
+
+        assertEq(pool.sealState(), 0);
+    }
+
+    function test_seal_gatesSealableOnceWired() public {
+        SwapPool p = _ungatedPool();
+
+        vm.startPrank(owner);
+        p.setTokenRegistry(address(tokenRegistry));
+        p.setTokenLimiter(address(limiter));
+        assertEq(p.seal(31), 31);
+        vm.stopPrank();
+
+        assertTrue(p.isSealed(0), "full seal is reachable once both gates are wired");
+        assertTrue(p.tokenRegistry() != address(0));
+        assertTrue(p.tokenLimiter() != address(0));
+    }
+
+    /// The other three bits are unaffected: an ungated pool can still commit
+    /// to its fee policy, fee address and quoter.
+    function test_seal_unrelatedBitsUnaffectedByUnsetGates() public {
+        SwapPool p = _ungatedPool();
+
+        vm.prank(owner);
+        assertEq(p.seal(7), 7);
+        assertFalse(p.isSealed(0), "seal(7) is no longer a full seal");
+    }
+
     function test_setters_revertIf_not_owner() public {
         vm.startPrank(user1);
 

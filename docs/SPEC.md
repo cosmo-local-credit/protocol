@@ -96,7 +96,7 @@ Fee collection (owner only):
 - `withdraw(tokenOut, value)`: send a specific `value` of accumulated pool fees for `tokenOut` to `feeAddress`.
 
 Configuration (owner only):
-- `seal(state)`: permanently lock one or more configuration fields (bitmask). Reverts with `AlreadyLocked` if a bit is already set, or `InvalidState` if `state > maxSealState`.
+- `seal(state)`: permanently lock one or more configuration fields (bitmask). Reverts with `AlreadyLocked` if a bit is already set, and with `InvalidState` if `state > maxSealState` or if the mask names a gate that is still unconfigured — `REGISTRY_STATE` with `tokenRegistry` unset, or `LIMITER_STATE` with `tokenLimiter` unset. Wire both gates before sealing them; otherwise a seal would freeze the pool as permanently ungated while reporting a complete seal.
 - `setFeePolicy(address)`: reverts with `Sealed` if `FEE_STATE` is sealed.
 - `setFeeAddress(address)`: reverts with `Sealed` if `FEEADDRESS_STATE` is sealed.
 - `setQuoter(address)`: reverts with `Sealed` if `QUOTER_STATE` is sealed.

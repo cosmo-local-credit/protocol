@@ -324,6 +324,15 @@ To lock configuration, seal all five bits after wiring registry and limiter:
 cast send $SWAPPOOL_PROXY "seal(uint8)" 31 $SEND   # fee | feeAddress | quoter | registry | limiter
 ```
 
+`seal` enforces the ordering: bits 8 and 16 revert `InvalidState` while
+`tokenRegistry` or `tokenLimiter` is still the zero address, so a pool cannot be
+frozen as permanently ungated behind a full-seal claim. Verify before sealing:
+
+```bash
+cast call $SWAPPOOL_PROXY "tokenRegistry()(address)"
+cast call $SWAPPOOL_PROXY "tokenLimiter()(address)"
+```
+
 ---
 
 ## 6. Upgrading an Implementation

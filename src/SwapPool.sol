@@ -138,6 +138,8 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     function seal(uint8 _state) public onlyOwner returns (uint8) {
         if (_state > maxSealState) revert InvalidState();
         if (_state & sealState != 0) revert AlreadyLocked();
+        if (_state & REGISTRY_STATE != 0 && tokenRegistry == address(0)) revert InvalidState();
+        if (_state & LIMITER_STATE != 0 && tokenLimiter == address(0)) revert InvalidState();
         sealState |= _state;
         uint8 mask = _fullSealMask();
         if (fullSealMask == 0 && (sealState & maxSealState) == maxSealState) {
