@@ -36,6 +36,7 @@ contract TokenUniqueSymbolIndex is Ownable, Initializable {
         external
         initializer
     {
+        if (owner_ == address(0)) revert NewOwnerIsZeroAddress();
         if (initialTokens.length != initialSymbols.length) revert ArrayLengthMismatch();
         _initializeOwner(owner_);
 

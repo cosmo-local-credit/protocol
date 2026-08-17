@@ -166,33 +166,25 @@ contract AuditPoCQuoterTest is Test {
     }
 
     // =================================================================
-    // Every proxied contract in this group accepts owner == address(0) and
-    // consumes its initializer, permanently locking administration.
+    // L-7 (FIXED): every proxied contract in this group rejects a zero owner
+    // before consuming its initializer.
     // =================================================================
-    function test_POC_initializeOwnerZero_bricksEveryProxiedContract() public {
+    function test_initializeOwnerZero_isRejectedByEveryProxiedContract() public {
         FeePolicy fp = FeePolicy(LibClone.clone(address(fpImpl)));
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
         fp.initialize(address(0), 10_000);
-        assertEq(fp.owner(), address(0));
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        fp.setDefaultFee(1);
 
         ProtocolFeeController pfc = ProtocolFeeController(LibClone.clone(address(pfcImpl)));
-        pfc.initialize(address(0), 10_000, makeAddr("recipient")); // recipient IS checked
-        assertEq(pfc.owner(), address(0));
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        pfc.setActive(false);
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
+        pfc.initialize(address(0), 10_000, makeAddr("recipient"));
 
         Limiter lim = Limiter(LibClone.clone(address(limImpl)));
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
         lim.initialize(address(0));
-        assertEq(lim.owner(), address(0));
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        lim.addWriter(address(1));
 
         RelativeQuoter q = RelativeQuoter(LibClone.clone(address(rqImpl)));
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
         q.initialize(address(0));
-        assertEq(q.owner(), address(0));
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        q.setPriceIndexValue(address(t18), PPM);
     }
 
     // =================================================================

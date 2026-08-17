@@ -24,6 +24,8 @@ GAS="--gas-fee-cap 35000000000 --gas-tip-cap 100"
 BASE="--rpc-url $RPC_URL --chain-id $CHAIN_ID --private-key $PRIVATE_KEY $GAS"
 ```
 
+`OWNER` must be a nonzero address. Every proxy initializer rejects a zero owner before committing any state, because an ownerless initialized instance cannot be repaired.
+
 ---
 
 ## 1. Deploy the Factory

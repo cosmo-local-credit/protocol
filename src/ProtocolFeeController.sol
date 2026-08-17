@@ -27,6 +27,7 @@ contract ProtocolFeeController is IProtocolFeeController, Ownable, Initializable
     }
 
     function initialize(address owner_, uint256 initialFee_, address initialRecipient_) external initializer {
+        if (owner_ == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner_);
 
         if (initialFee_ > PPM) revert InvalidFee();

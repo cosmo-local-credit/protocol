@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Splitter} from "../../src/Splitter.sol";
 import {RescueVault} from "../../src/RescueVault.sol";
@@ -206,38 +207,14 @@ contract AuditPoCSplitterTest is Test {
         assertEq(address(splitter).balance, 1 ether);
     }
 
-    /// Amplifier: the owner is the only escape hatch, and `initialize` happily
-    /// accepts owner == address(0), which makes the freeze permanent.
-    function test_POC_splitter_zeroOwnerPlusHostileRecipient_freezesFundsForever() public {
+    /// The owner escape hatch cannot be made permanently unreachable at init.
+    function test_splitter_zeroOwnerWithHostileRecipient_isRejected() public {
         Splitter s = Splitter(payable(LibClone.clone(address(impl))));
         FvRevertingReceiver bad = new FvRevertingReceiver();
         (address[] memory a, uint32[] memory p) = _two(address(bad), r2, 600_000, 400_000);
 
-        s.initialize(address(0), a, p); // accepted: no non-zero-owner check
-        assertEq(s.owner(), address(0), "owner is the unreachable zero address");
-
-        vm.deal(address(s), 1 ether);
-        vm.expectRevert(SafeTransferLib.ETHTransferFailed.selector);
-        s.distributeETH(a, p);
-
-        // The only account that could repair the split is address(0), which
-        // cannot originate a transaction. Every real caller is locked out.
-        (address[] memory a2, uint32[] memory p2) = _two(r1, r2, 600_000, 400_000);
-        vm.expectRevert();
-        s.updateSplit(a2, p2);
-        vm.prank(owner);
-        vm.expectRevert();
-        s.updateSplit(a2, p2);
-        vm.prank(r1);
-        vm.expectRevert();
-        s.updateSplit(a2, p2);
-
-        // Proof that address(0) is genuinely the owner (only reachable via a
-        // cheatcode, never on a real chain).
-        vm.prank(address(0));
-        s.updateSplit(a2, p2);
-
-        assertEq(address(s).balance, 1 ether, "1 ether locked behind an unreachable owner");
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
+        s.initialize(address(0), a, p);
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -123,6 +123,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         bool feesDecoupled_,
         address protocolFeeController_
     ) external initializer {
+        if (owner == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner);
 
         _name = name_;

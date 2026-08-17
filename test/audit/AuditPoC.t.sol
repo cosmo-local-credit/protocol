@@ -868,32 +868,22 @@ contract AuditOraclePoCTest is Test {
     }
 
     // -----------------------------------------------------------------
-    // L-8  initialize accepts owner == address(0) and consumes the
-    //      initializer, leaving the instance permanently unadministrable.
+    // L-8 (FIXED) initialize rejects owner == address(0) before consuming
+    //      the initializer.
     // -----------------------------------------------------------------
-    function test_POC_L8_initializeOwnerZero_bricksQuoter() public {
+    function test_POC_L8_initializeOwnerZero_isRejectedByQuoter() public {
         OracleQuoter fresh = OracleQuoter(LibClone.clone(address(quoterImpl)));
-        fresh.initialize(address(0), address(t18)); // baseCurrency is checked, owner is not
-        assertEq(fresh.owner(), address(0));
-
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        fresh.setOracle(address(t6), address(feedFast));
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
+        fresh.initialize(address(0), address(t18));
     }
 
-    function test_POC_L8_initializeOwnerZero_locksPoolAdmin() public {
+    function test_POC_L8_initializeOwnerZero_isRejectedByPool() public {
         SwapPool impl = new SwapPool();
         SwapPool p = SwapPool(LibClone.clone(address(impl)));
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
         p.initialize(
             "P", "P", 18, address(0), address(0), makeAddr("fee"), address(0), address(0), address(0), false, address(0)
         );
-        assertEq(p.owner(), address(0));
-
-        // Swaps still work, but no fee can ever be collected and no setter
-        // can ever be called again.
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        p.withdraw(makeAddr("token"));
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        p.setQuoter(address(1));
     }
 
     // -----------------------------------------------------------------

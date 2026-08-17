@@ -22,6 +22,7 @@ contract PeriodSimple is Ownable, Initializable {
     }
 
     function initialize(address owner_, address poker_) external initializer {
+        if (owner_ == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner_);
         poker = poker_;
     }

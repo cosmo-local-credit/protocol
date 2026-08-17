@@ -44,6 +44,7 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
     }
 
     function initialize(address owner, address _baseCurrency) external initializer {
+        if (owner == address(0)) revert NewOwnerIsZeroAddress();
         if (_baseCurrency == address(0)) revert InvalidBaseCurrency();
         _initializeOwner(owner);
         baseCurrency = _baseCurrency;

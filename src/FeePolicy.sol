@@ -28,6 +28,7 @@ contract FeePolicy is IFeePolicy, Ownable, Initializable {
     }
 
     function initialize(address owner_, uint256 defaultFee_) external initializer {
+        if (owner_ == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner_);
         if (defaultFee_ > PPM) revert InvalidFee();
         defaultFee = defaultFee_;

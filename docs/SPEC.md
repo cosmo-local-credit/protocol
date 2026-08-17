@@ -7,6 +7,7 @@ Conventions used throughout:
 - **PPM (parts per million):** fees and allocations are expressed where `1_000_000 = 100%`. So `10_000 = 1%` and `100_000 = 10%`.
 - **Proxy:** "Yes (ERC1967)" means the contract is deployed behind a proxy and configured via `initialize()`. "No" means it is deployed directly with a constructor.
 - **Owner / writer:** `owner` has full control. Some contracts also support a `writer` role: addresses the owner grants limited write access without handing over ownership.
+- **Initializer owner:** every proxied contract rejects `owner == address(0)` with `NewOwnerIsZeroAddress`; a deployment cannot consume its initializer without a reachable administrator.
 
 ## Table of Contents
 

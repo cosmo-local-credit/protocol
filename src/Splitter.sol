@@ -36,6 +36,7 @@ contract Splitter is ISplitter, Ownable, Initializable {
         external
         initializer
     {
+        if (owner == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner);
         _validateSplit(accounts, percentAllocations);
         _splitHash = _hashSplit(accounts, percentAllocations);

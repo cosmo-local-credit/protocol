@@ -41,6 +41,7 @@ contract EthFaucet is Ownable, Initializable {
     }
 
     function initialize(address owner_, uint256 amount_) external initializer {
+        if (owner_ == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner_);
         amount = amount_;
     }

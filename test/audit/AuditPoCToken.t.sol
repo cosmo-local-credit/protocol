@@ -407,26 +407,12 @@ contract AuditPoCGiftableToken is Test {
     }
 
     /*------------------------------------------------------------------
-      FINDING: initialize() accepts owner == address(0). solady's
-      _guardInitializeOwner() is false here, so the zero owner is stored
-      verbatim and the token is permanently un-administrable.
+      L-7 (FIXED): a token cannot consume its initializer with a zero owner.
     ------------------------------------------------------------------*/
-    function test_GT_initializeAcceptsZeroOwnerBrickingAdmin() public {
+    function test_GT_initializeRejectsZeroOwner() public {
         GiftableToken t = GiftableToken(LibClone.clone(address(impl)));
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
         t.initialize("Orphan", "ORP", 6, address(0), 0);
-
-        assertEq(t.owner(), address(0));
-
-        vm.prank(owner);
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        t.addWriter(writer);
-
-        vm.prank(owner);
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        t.mintTo(user1, 1);
-
-        // No writer can ever be added, so the token can never be minted.
-        assertTrue(t.isWriter(address(0)), "zero address reads as a writer");
     }
 
     /*------------------------------------------------------------------
@@ -1595,27 +1581,12 @@ contract AuditPoCCat is Test {
     }
 
     /*------------------------------------------------------------------
-      FINDING: initialize(address(0)) permanently removes administration
-      (no writers can ever be added) while leaving setTokens() usable.
+      L-7 (FIXED): CAT cannot initialize without an administrator.
     ------------------------------------------------------------------*/
-    function test_CAT_initializeAcceptsZeroOwnerBrickingAdmin() public {
+    function test_CAT_initializeRejectsZeroOwner() public {
         CAT c = CAT(LibClone.clone(address(impl)));
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
         c.initialize(address(0));
-        assertEq(c.owner(), address(0));
-
-        vm.prank(owner);
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        c.addWriter(writer);
-        vm.prank(owner);
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        c.setTokensFor(user1, _list(1));
-
-        assertTrue(c.isWriter(address(0)));
-
-        // Self-service still works.
-        vm.prank(user1);
-        c.setTokens(_list(1));
-        assertEq(c.tokenCount(user1), 1);
     }
 
     /*------------------------------------------------------------------

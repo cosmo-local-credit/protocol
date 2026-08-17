@@ -409,19 +409,12 @@ contract AuditPoCIndexTest is Test {
         ai.initialize(attacker);
     }
 
-    // FINDING (info): initialize() accepts a zero owner. The contract then has no
-    // administrator forever, and isWriter(address(0)) starts answering true.
-    function test_AI_initializeZeroOwner_leavesUnownedAndLiesAboutIsWriter() public {
+    // L-7 (FIXED): initialization cannot consume the initializer with an
+    // unreachable owner.
+    function test_AI_initializeZeroOwner_isRejected() public {
         AccountsIndex orphan = AccountsIndex(payable(LibClone.clone(address(aiImpl))));
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
         orphan.initialize(address(0));
-
-        assertEq(orphan.owner(), address(0));
-        assertTrue(orphan.isWriter(address(0)), "address(0) reported as a writer");
-
-        // no one can ever appoint a writer again
-        vm.prank(attacker);
-        vm.expectRevert(Unauthorized.selector);
-        orphan.addWriter(attacker);
     }
 
     /* ============================================================ *
@@ -813,20 +806,13 @@ contract AuditPoCIndexTest is Test {
         e.set(KEY_A, acc1);
     }
 
-    // FINDING (info): zero owner is accepted, permanently bricking set().
-    function test_CR_initializeZeroOwner_bricksSetForever() public {
+    // L-7 (FIXED): a registry cannot be initialized without an administrator.
+    function test_CR_initializeZeroOwner_isRejected() public {
         ContractRegistry o = ContractRegistry(payable(LibClone.clone(address(crImpl))));
         bytes32[] memory ids = new bytes32[](1);
         ids[0] = KEY_A;
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
         o.initialize(address(0), ids);
-
-        assertEq(o.owner(), address(0));
-        vm.prank(attacker);
-        vm.expectRevert(Unauthorized.selector);
-        o.set(KEY_A, attacker);
-        vm.prank(owner);
-        vm.expectRevert(Unauthorized.selector);
-        o.set(KEY_A, acc1);
     }
 
     function test_CR_initializerSafety_isCorrect() public {
