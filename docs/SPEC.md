@@ -278,7 +278,9 @@ Price quoter using per-token exchange rates expressed relative to a common unit.
 
 **Calculation:**
 
-The quoter first adjusts for the decimal difference between the two tokens, then applies the exchange rates:
+The quoter combines the decimal difference and exchange-rate conversion before
+rounding, so cross-decimal quotes do not discard input precision before applying
+the rate:
 ```
 outValue = adjustedValue * inExchangeRate / outExchangeRate
 ```
@@ -299,7 +301,8 @@ Price quoter using Chainlink oracle feeds.
 
 **Key Functions:**
 - `initialize(owner, baseCurrency)`: `baseCurrency` must be non-zero. It is metadata only and does not affect pricing. It records the common quote denomination for operators.
-- `setOracle(token, oracleAddress)`: map a token to its Chainlink `AggregatorV3` feed. Owner only.
+- `setOracle(token, oracleAddress)`: map a token to its Chainlink `AggregatorV3` feed and use the global freshness bound. Owner only.
+- `setOracle(token, oracleAddress, maxStaleness)`: map a token and its feed-specific freshness bound atomically. A zero bound uses the global fallback.
 - `removeOracle(token)`: owner only.
 - `setMaxStaleness(seconds)`: maximum age of an oracle price before it is rejected. Default is `86400` (1 day). Owner only.
 - `setMultiplier(multiplier)`: adjust all quotes by a factor in PPM. Owner only. Allowed range is `900_000` (0.9x) to `1_000_000` (1.0x); parity is the ceiling. A stored value of `0` or `1_000_000` means no adjustment. Above-parity values are rejected with `InvalidMultiplier`: the same factor is applied to the output side of both legs of a pair, so a value above parity is a subsidy on every leg rather than a spread, and an A->B->A round trip would return `multiplier²` of the notional to any caller.
@@ -318,7 +321,7 @@ All four decimal adjustments are applied, so feeds with different precisions (fo
 
 **Constraints:**
 - Both tokens must have oracles configured, otherwise the call reverts with `OracleNotSet(token)`.
-- The price must be positive (`InvalidOraclePrice`) and no older than `maxStaleness` (`StaleOraclePrice`).
+- The price must be positive (`InvalidOraclePrice`) and no older than the token's feed-specific freshness bound, or global `maxStaleness` when no override is set (`StaleOraclePrice`).
 - There are no fallback rates. Any missing or failing oracle call reverts.
 
 **Setup guide:**
@@ -341,6 +344,7 @@ Set `baseCurrency` to the settlement token your pool treats as primary (for exam
 **Events:**
 - `Initialized(owner, baseCurrency)`
 - `OracleUpdated(token, oracle)`
+- `OracleMaxStalenessUpdated(token, maxStaleness)`
 - `OracleRemoved(token)`
 - `MaxStalenessUpdated(maxStaleness)`
 - `MultiplierUpdated(oldMultiplier, newMultiplier)`

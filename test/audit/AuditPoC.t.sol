@@ -170,42 +170,39 @@ contract AuditPoCTest is Test {
     }
 
     // =====================================================================
-    // F-02  OracleQuoter.reverseValueFor inverts the two rounding stages in
-    //       the wrong order, so the IQuoter round-trip guarantee
-    //       valueFor(out,in,reverseValueFor(out,in,x)) >= x is violated.
+    // F-02 (FIXED) OracleQuoter reverses the multiplier before the rate
+    //       conversion, preserving the documented IQuoter round-trip guarantee.
     // =====================================================================
-    function test_POC_F02_reverseValueFor_breaksRoundtripInvariant() public {
+    function test_F02_reverseValueFor_roundtripInvariant_holds() public {
         (OracleQuoter q, address small, address big) = _crossDecimalQuoter();
 
         // Ask for 1 unit of the 6-decimal token, paying with the 18-decimal token.
         uint256 needed = q.reverseValueFor(small, big, 1);
         uint256 actual = q.valueFor(small, big, needed);
 
-        assertEq(actual, 0, "round trip delivers nothing for a 1-unit request");
-        assertLt(actual, 1, "IQuoter invariant valueFor(reverseValueFor(x)) >= x is violated");
+        assertGe(actual, 1, "round trip covers a 1-unit request");
     }
 
-    function test_POC_F02_reverseValueFor_shortfall_atScale() public {
+    function test_F02_reverseValueFor_coversRequestedOutputAtScale() public {
         (OracleQuoter q, address small, address big) = _crossDecimalQuoter();
 
         uint256 desired = 100e6;
         uint256 needed = q.reverseValueFor(small, big, desired);
         uint256 actual = q.valueFor(small, big, needed);
 
-        assertLt(actual, desired, "shortfall persists at realistic sizes");
-        assertEq(desired - actual, 1, "one unit short");
+        assertGe(actual, desired, "no shortfall at realistic sizes");
     }
 
     /// The invariant does not merely fail at one point — it fails for the
     /// large majority of request sizes.
-    function test_POC_F02_reverseValueFor_violations_areTheNorm() public {
+    function test_F02_reverseValueFor_hasNoRoundtripViolations() public {
         (OracleQuoter q, address small, address big) = _crossDecimalQuoter();
 
         uint256 violations;
         for (uint256 x = 1; x <= 100; x++) {
             if (q.valueFor(small, big, q.reverseValueFor(small, big, x)) < x) violations++;
         }
-        assertEq(violations, 95, "95 of the first 100 request sizes under-deliver");
+        assertEq(violations, 0, "no request size under-delivers");
     }
 
     /// 6-decimal token out, 18-decimal token in, equal prices, multiplier != 1.0
@@ -227,10 +224,10 @@ contract AuditPoCTest is Test {
     }
 
     // =====================================================================
-    // F-02  Same defect surfacing through the documented SwapRouter
+    // F-02 (FIXED) The corrected inverse reaches the SwapRouter's documented
     //       round-trip property.
     // =====================================================================
-    function test_POC_F02_router_quoteExactOutput_underDelivers() public {
+    function test_F02_router_quoteExactOutput_coversRequest() public {
         (OracleQuoter q, address small, address big) = _crossDecimalQuoter();
 
         SwapPool p = _pool(address(q), false);
@@ -248,7 +245,7 @@ contract AuditPoCTest is Test {
         uint256 amountIn = router.quoteExactOutput(path, desired);
         uint256 amountOut = router.quoteExactInput(path, amountIn);
 
-        assertLt(amountOut, desired, "documented router round-trip property is violated");
+        assertGe(amountOut, desired, "documented router round-trip property holds");
     }
 
     // =====================================================================
@@ -759,11 +756,10 @@ contract AuditOraclePoCTest is Test {
     }
 
     // -----------------------------------------------------------------
-    // M-1 is broader than cross-decimal pairs: an extreme rate ratio
-    // produces the same coarse forward truncation with identical token
-    // and feed decimals.
+    // M-1 (FIXED) The corrected stage order also holds for identical token
+    // decimals and extreme rate ratios.
     // -----------------------------------------------------------------
-    function test_POC_M1_breaksWithIdenticalDecimals() public {
+    function test_M1_roundtripHoldsWithIdenticalDecimals() public {
         AudTokenMeta cheap = new AudTokenMeta(6);
         AudAgg microFeed = new AudAgg(8, 100); // price 1e-6, same 8 decimals
 
@@ -773,48 +769,49 @@ contract AuditOraclePoCTest is Test {
         vm.stopPrank();
 
         uint256 needed = q.reverseValueFor(address(t6), address(cheap), 1);
-        assertLt(q.valueFor(address(t6), address(cheap), needed), 1, "same decimals, still broken");
+        assertGe(q.valueFor(address(t6), address(cheap), needed), 1, "same-decimal roundtrip holds");
     }
 
     /// The recommended fix — undo the multiplier before inverting the rate —
     /// restores the invariant for every amount the current order breaks.
-    function test_POC_M1_correctedOrderRestoresInvariant() public {
+    function test_M1_correctedOrderIsUsedForEveryAmount() public {
         vm.prank(owner);
         q.setMultiplier(950_000);
 
         uint256 A = uint256(1e8) * 1e6 * 1e8; // inRate * outScale * outRateScale
         uint256 B = uint256(1e8) * 1e18 * 1e8; // inRateScale * inScale * outRate
 
-        uint256 violations;
         for (uint256 y = 1; y <= 22; y++) {
-            uint256 asShipped = q.reverseValueFor(address(t6), address(t18), y);
-            if (q.valueFor(address(t6), address(t18), asShipped) < y) violations++;
-
+            uint256 actual = q.reverseValueFor(address(t6), address(t18), y);
             uint256 corrected = FixedPointMathLib.fullMulDivUp(FixedPointMathLib.fullMulDivUp(y, PPM, 950_000), B, A);
-            assertGe(q.valueFor(address(t6), address(t18), corrected), y, "corrected order holds");
+            assertEq(actual, corrected, "implementation uses corrected order");
+            assertGe(q.valueFor(address(t6), address(t18), actual), y, "corrected order holds");
         }
-        assertEq(violations, 21, "21 of 22 amounts break under the shipped order");
     }
 
     // -----------------------------------------------------------------
-    // M-4  One global maxStaleness cannot serve feeds with different
-    //      heartbeats, and SPEC's own setup guide mixes them.
+    // M-4 (FIXED) Feed-specific bounds allow heterogeneous heartbeats while
+    //      the global maxStaleness remains a backward-compatible fallback.
     // -----------------------------------------------------------------
-    function test_POC_M4_globalStaleness_cannotFitHeterogeneousFeeds() public {
-        // A 1-hour-heartbeat feed has been dead for 23 hours. The 1-day
-        // default still prices it.
+    function test_M4_feedSpecificStalenessSupportsHeterogeneousFeeds() public {
+        vm.startPrank(owner);
+        q.setOracle(address(t6), address(feedFast), 1 hours);
+        q.setOracle(address(t18), address(feedFast), 1 hours);
+        q.setOracle(address(t6b), address(feedSlow), 24 hours);
+        vm.stopPrank();
+
+        // A 1-hour feed that has been dead for 23 hours is rejected even
+        // though the backward-compatible global fallback is one day.
         feedFast.setUpdatedAt(T0 - 23 hours);
         feedSlow.setUpdatedAt(T0 - 10 minutes);
-        assertEq(q.valueFor(address(t6b), address(t6), 1e6), 1e6, "23h-stale price accepted");
+        vm.expectRevert(abi.encodeWithSelector(OracleQuoter.StaleOraclePrice.selector, address(feedFast)));
+        q.valueFor(address(t6b), address(t6), 1e6);
 
-        // Tighten to one hour to protect it, and a healthy 24h-heartbeat feed
-        // updated 2 hours ago now reverts. No single value works.
-        vm.prank(owner);
-        q.setMaxStaleness(3600);
+        // The same quoter still accepts a healthy 24-hour feed updated two
+        // hours ago while enforcing the fast feed's tighter bound.
         feedFast.setUpdatedAt(T0 - 30 minutes);
         feedSlow.setUpdatedAt(T0 - 2 hours);
-        vm.expectRevert(abi.encodeWithSelector(OracleQuoter.StaleOraclePrice.selector, address(feedSlow)));
-        q.valueFor(address(t6b), address(t6), 1e6);
+        assertEq(q.valueFor(address(t6b), address(t6), 1e6), 1e6);
     }
 
     // -----------------------------------------------------------------

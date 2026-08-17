@@ -43,6 +43,7 @@ contract OracleQuoterTest is Test {
 
     event Initialized(address indexed owner, address indexed baseCurrency);
     event OracleUpdated(address indexed token, address indexed oracle);
+    event OracleMaxStalenessUpdated(address indexed token, uint256 maxStaleness);
     event OracleRemoved(address indexed token);
     event MultiplierUpdated(uint256 oldMultiplier, uint256 newMultiplier);
 
@@ -117,6 +118,25 @@ contract OracleQuoterTest is Test {
         assertEq(quoter.oracles(address(tokenSRF)), newOracle);
     }
 
+    function test_setOracle_withFeedSpecificStaleness() public {
+        address newOracle = makeAddr("feedSpecificOracle");
+
+        vm.prank(owner);
+        quoter.setOracle(address(tokenSRF), newOracle, 3600);
+
+        assertEq(quoter.oracles(address(tokenSRF)), newOracle);
+        assertEq(quoter.oracleMaxStaleness(address(tokenSRF)), 3600);
+    }
+
+    function test_setOracle_legacyOverloadClearsFeedSpecificStaleness() public {
+        vm.startPrank(owner);
+        quoter.setOracle(address(tokenSRF), address(oracleSRF), 3600);
+        quoter.setOracle(address(tokenSRF), address(oracleSRF));
+        vm.stopPrank();
+
+        assertEq(quoter.oracleMaxStaleness(address(tokenSRF)), 0, "uses the global fallback again");
+    }
+
     function test_setOracle_revertIf_notOwner() public {
         vm.prank(makeAddr("notOwner"));
         vm.expectRevert(Ownable.Unauthorized.selector);
@@ -131,11 +151,15 @@ contract OracleQuoterTest is Test {
 
     function test_removeOracle() public {
         vm.prank(owner);
+        quoter.setOracle(address(tokenSRF), address(oracleSRF), 3600);
+
+        vm.prank(owner);
         vm.expectEmit(true, false, false, true);
         emit OracleRemoved(address(tokenSRF));
         quoter.removeOracle(address(tokenSRF));
 
         assertEq(quoter.oracles(address(tokenSRF)), address(0));
+        assertEq(quoter.oracleMaxStaleness(address(tokenSRF)), 0);
     }
 
     function test_removeOracle_revertIf_notOwner() public {

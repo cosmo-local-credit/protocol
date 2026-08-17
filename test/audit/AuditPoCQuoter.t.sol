@@ -47,12 +47,10 @@ contract AuditPoCQuoterTest is Test {
     }
 
     // =================================================================
-    // RelativeQuoter divides before multiplying, so the forward path
-    // truncates the input to the OUTPUT token's granularity before the
-    // exchange rate is applied. reverseValueFor cannot invert that, so the
-    // documented IQuoter round-trip guarantee fails.
+    // M-8 (FIXED) RelativeQuoter combines decimal scaling with rate conversion
+    // before truncation, and its reverse preserves the IQuoter round-trip.
     // =================================================================
-    function test_POC_relativeQuoter_breaksRoundtripInvariant() public {
+    function test_relativeQuoter_roundtripInvariant_holds() public {
         // in = 18 decimals rated 3.0, out = 6 decimals rated 1.0
         vm.startPrank(owner);
         rq.setPriceIndexValue(address(t18), 3_000_000);
@@ -63,11 +61,10 @@ contract AuditPoCQuoterTest is Test {
         uint256 delivered = rq.valueFor(address(t6), address(t18), needed);
 
         assertEq(needed, 333_333_333_334, "reverse asks for 3.33e11 wei");
-        assertEq(delivered, 0, "forward truncates it to nothing");
-        assertLt(delivered, 1, "IQuoter invariant valueFor(reverseValueFor(x)) >= x violated");
+        assertGe(delivered, 1, "IQuoter round-trip covers the request");
     }
 
-    function test_POC_relativeQuoter_roundtripViolations_areTheNorm() public {
+    function test_relativeQuoter_hasNoRoundtripViolations() public {
         vm.startPrank(owner);
         rq.setPriceIndexValue(address(t18), 3_000_000);
         rq.setPriceIndexValue(address(t6), 1_000_000);
@@ -79,12 +76,12 @@ contract AuditPoCQuoterTest is Test {
                 violations++;
             }
         }
-        assertEq(violations, 20, "20 of the first 30 request sizes under-deliver");
+        assertEq(violations, 0, "no request size under-delivers");
     }
 
-    /// The magnitude of the truncation is one whole unit of the output token
-    /// per unit of rate ratio — not a rounding wei.
-    function test_POC_relativeQuoter_precisionLoss_isAWholeOutputUnit() public {
+    /// Decimal scaling no longer discards the input remainder before applying
+    /// a large exchange-rate ratio.
+    function test_relativeQuoter_preservesCrossDecimalPrecision() public {
         // in = 18 decimals rated 1e6x the reference, out = 6 decimals at 1.0
         vm.startPrank(owner);
         rq.setPriceIndexValue(address(t18), 1_000_000_000_000); // 1e6 x
@@ -99,9 +96,8 @@ contract AuditPoCQuoterTest is Test {
         //   amountIn * inRate / (d * outRate) = (2e12-1) * 1e12 / (1e12 * 1e6)
         uint256 exact = (amountIn * 1_000_000_000_000) / (1e12 * 1_000_000);
 
-        assertEq(got, 1_000_000, "shipped: 1.0 output token");
         assertEq(exact, 1_999_999, "exact: 1.999999 output tokens");
-        assertEq(exact - got, 999_999, "just under one whole output token lost");
+        assertEq(got, exact, "combined mulDiv preserves the exact floor");
     }
 
     /// DecimalQuoter's reverse IS a correct inverse in both directions —

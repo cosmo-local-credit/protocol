@@ -4,6 +4,7 @@ pragma solidity ^0.8.30;
 
 import "solady/auth/Ownable.sol";
 import "solady/utils/Initializable.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {IQuoter} from "./interfaces/IQuoter.sol";
 
 contract RelativeQuoter is IQuoter, Ownable, Initializable {
@@ -61,9 +62,11 @@ contract RelativeQuoter is IQuoter, Ownable, Initializable {
 
         uint256 d = din > dout ? 10 ** ((din - dout)) : 10 ** ((dout - din));
         if (din > dout) {
-            return determineOutput(_value / d, inExchangeRate, outExchangeRate);
+            // floor(floor(value * rate) / d) is the exact combined floor, and
+            // avoids overflowing outExchangeRate * d.
+            return FixedPointMathLib.fullMulDiv(_value, inExchangeRate, outExchangeRate) / d;
         } else {
-            return determineOutput(_value * d, inExchangeRate, outExchangeRate);
+            return _fullMulDivScaled(_value, inExchangeRate, d, outExchangeRate);
         }
     }
 
@@ -109,10 +112,12 @@ contract RelativeQuoter is IQuoter, Ownable, Initializable {
         uint256 d = din > dout ? 10 ** ((din - dout)) : 10 ** ((dout - din));
         if (din > dout) {
             // valueFor divides by d, so reverse multiplies
-            return reverseOutput(_value * d, inExchangeRate, outExchangeRate);
+            return _fullMulDivScaledUp(_value, outExchangeRate, d, inExchangeRate);
         } else {
-            // valueFor multiplies by d, so reverse divides (ceiling)
-            return (reverseOutput(_value, inExchangeRate, outExchangeRate) + d - 1) / d;
+            // ceil(ceil(value * outRate / inRate) / d) is exactly
+            // ceil(value * outRate / (inRate * d)) without overflowing the
+            // denominator product.
+            return _ceilDiv(reverseOutput(_value, inExchangeRate, outExchangeRate), d);
         }
     }
 
@@ -122,7 +127,34 @@ contract RelativeQuoter is IQuoter, Ownable, Initializable {
         returns (uint256)
     {
         // Inverse of determineOutput: ceil(outputValue * outExchangeRate / inExchangeRate)
-        return (outputValue * outExchangeRate + inExchangeRate - 1) / inExchangeRate;
+        return FixedPointMathLib.fullMulDivUp(outputValue, outExchangeRate, inExchangeRate);
+    }
+
+    /// @dev Exact floor(x * y * scale / denominator), using the quotient and
+    /// remainder so neither x * scale nor y * scale must fit in 256 bits.
+    function _fullMulDivScaled(uint256 x, uint256 y, uint256 scale, uint256 denominator)
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 quotient = FixedPointMathLib.fullMulDiv(x, y, denominator);
+        uint256 remainder = mulmod(x, y, denominator);
+        return quotient * scale + FixedPointMathLib.fullMulDiv(remainder, scale, denominator);
+    }
+
+    /// @dev Exact ceil(x * y * scale / denominator).
+    function _fullMulDivScaledUp(uint256 x, uint256 y, uint256 scale, uint256 denominator)
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 quotient = FixedPointMathLib.fullMulDiv(x, y, denominator);
+        uint256 remainder = mulmod(x, y, denominator);
+        return quotient * scale + FixedPointMathLib.fullMulDivUp(remainder, scale, denominator);
+    }
+
+    function _ceilDiv(uint256 x, uint256 denominator) internal pure returns (uint256) {
+        return x / denominator + (x % denominator == 0 ? 0 : 1);
     }
 
     // Implements EIP165
