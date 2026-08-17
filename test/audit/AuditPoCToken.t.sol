@@ -661,11 +661,6 @@ contract AuditPoCEthFaucet is Test {
         registry = new TkRegistry();
     }
 
-    function _assertNoSuchFunction(string memory sig) internal {
-        (bool ok,) = address(faucet).call(abi.encodeWithSignature(sig));
-        assertFalse(ok, sig);
-    }
-
     /// Both gates now fail closed, so a test that is not about the registry
     /// still has to supply one that admits everybody it uses.
     function _openRegistry() internal {
@@ -857,10 +852,10 @@ contract AuditPoCEthFaucet is Test {
     }
 
     /*------------------------------------------------------------------
-      FINDING: there is no withdraw / rescue path. Sealing VALUE_STATE
-      while `amount` exceeds the reachable balance locks the ETH forever.
+      M-16 (FIXED): owner recovery remains available after sealing, so an
+      unusable configuration and sub-claim dust cannot strand ETH.
     ------------------------------------------------------------------*/
-    function test_EF_noWithdrawPathSealedAmountLocksEthForever() public {
+    function test_EF_ownerCanRecoverEthAfterAmountIsSealed() public {
         _openGating();
         vm.deal(address(faucet), 0.5 ether); // < amount (1 ether)
 
@@ -875,20 +870,14 @@ contract AuditPoCEthFaucet is Test {
         vm.expectRevert(EthFaucet.InsufficientBalance.selector);
         faucet.gimme();
 
-        _assertNoSuchFunction("withdraw()");
-        _assertNoSuchFunction("withdrawAll()");
-        _assertNoSuchFunction("sweep()");
-        _assertNoSuchFunction("rescue()");
-        _assertNoSuchFunction("drain()");
-        _assertNoSuchFunction("emergencyWithdraw()");
-        (bool ok,) = address(faucet).call(abi.encodeWithSignature("withdraw(uint256)", uint256(1)));
-        assertFalse(ok);
-
-        assertEq(address(faucet).balance, 0.5 ether, "ETH permanently locked");
+        vm.prank(owner);
+        assertEq(faucet.withdraw(payable(owner), 0.5 ether), 0.5 ether);
+        assertEq(address(faucet).balance, 0);
+        assertEq(owner.balance, 0.5 ether);
     }
 
-    /// @dev Even unsealed, any residual balance below `amount` is unreachable.
-    function test_EF_dustBelowAmountIsUnreachable() public {
+    /// @dev Residual balance below the claim amount is recoverable by the owner.
+    function test_EF_dustBelowAmountIsRecoverable() public {
         _openGating();
         vm.deal(address(faucet), 1.5 ether);
         vm.prank(user1);
@@ -898,17 +887,17 @@ contract AuditPoCEthFaucet is Test {
         vm.expectRevert(EthFaucet.InsufficientBalance.selector);
         faucet.gimme();
         assertFalse(faucet.check(user2));
+        vm.prank(owner);
+        faucet.withdraw(payable(owner), 0.5 ether);
+        assertEq(address(faucet).balance, 0);
     }
 
     /*------------------------------------------------------------------
-      FINDING: the raw `have(address)` / `poke(address)` calls never
-      validate returndata length. A registry/periodChecker with no code
-      (or one returning short data) makes the faucet panic with
-      Panic(0x32) instead of the dedicated RegistryBackend /
-      PeriodBackend errors -- and `check()`, which is meant to return a
-      bool, reverts.
+      M-18 (FIXED): malformed backend replies fail with the dedicated
+      RegistryBackend / PeriodBackend errors instead of an array panic or
+      permissive one-byte interpretation.
     ------------------------------------------------------------------*/
-    function test_EF_registryWithNoCodePanicsInsteadOfRegistryBackend() public {
+    function test_EF_registryWithNoCodeRevertsRegistryBackend() public {
         _openPeriod();
         address eoaRegistry = makeAddr("efEoaRegistry");
         assertEq(eoaRegistry.code.length, 0);
@@ -917,80 +906,71 @@ contract AuditPoCEthFaucet is Test {
         faucet.setRegistry(eoaRegistry);
         vm.deal(address(faucet), 10 ether);
 
-        vm.expectRevert(stdError.indexOOBError);
+        vm.expectRevert(EthFaucet.RegistryBackend.selector);
         faucet.check(user1);
 
         vm.prank(user1);
-        vm.expectRevert(stdError.indexOOBError);
+        vm.expectRevert(EthFaucet.RegistryBackend.selector);
         faucet.gimme();
     }
 
-    function test_EF_periodCheckerWithNoCodePanicsInsteadOfPeriodBackend() public {
+    function test_EF_periodCheckerWithNoCodeRevertsPeriodBackend() public {
         _openRegistry();
         address eoaChecker = makeAddr("efEoaChecker");
         vm.prank(owner);
         faucet.setPeriodChecker(eoaChecker);
         vm.deal(address(faucet), 10 ether);
 
-        vm.expectRevert(stdError.indexOOBError);
+        vm.expectRevert(EthFaucet.PeriodBackend.selector);
         faucet.check(user1);
 
         vm.prank(user1);
-        vm.expectRevert(stdError.indexOOBError);
-        faucet.gimme(); // panics on poke()'s empty returndata
+        vm.expectRevert(EthFaucet.PeriodBackend.selector);
+        faucet.gimme(); // poke() returns empty data and is rejected explicitly
     }
 
-    function test_EF_registryReturningShortDataPanics() public {
+    function test_EF_registryReturningShortDataRevertsRegistryBackend() public {
         _openPeriod();
         TkShortReturnRegistry short = new TkShortReturnRegistry();
         vm.prank(owner);
         faucet.setRegistry(address(short));
         vm.deal(address(faucet), 10 ether);
 
-        vm.expectRevert(stdError.indexOOBError);
+        vm.expectRevert(EthFaucet.RegistryBackend.selector);
         faucet.check(user1);
     }
 
-    /*------------------------------------------------------------------
-      FINDING: `result[31] == 0x01` inspects a single byte, so a word that
-      `abi.decode(_, (bool))` would reject (e.g. 257) is accepted as
-      `true`, and a truthy word like 256 is silently read as `false`.
-    ------------------------------------------------------------------*/
-    function test_EF_registryReturnValueOnlyInspectsByte31() public {
+    function test_EF_registryRejectsNonCanonicalBool() public {
         _openPeriod();
         vm.deal(address(faucet), 10 ether);
 
-        // 257 == 0x...0101 -> byte 31 is 0x01 -> accepted as "whitelisted"
         TkNonCanonicalBoolRegistry lax = new TkNonCanonicalBoolRegistry(257);
         vm.prank(owner);
         faucet.setRegistry(address(lax));
-        assertTrue(faucet.check(user1));
-        vm.prank(user1);
-        assertEq(faucet.gimme(), 1 ether);
+        vm.expectRevert(EthFaucet.RegistryBackend.selector);
+        faucet.check(user1);
 
-        // 256 == 0x...0100 -> byte 31 is 0x00 -> read as "not whitelisted",
-        // even though it is a non-zero (truthy) word.
         TkNonCanonicalBoolRegistry weird = new TkNonCanonicalBoolRegistry(256);
         vm.prank(owner);
         faucet.setRegistry(address(weird));
-        assertFalse(faucet.check(user2));
+        vm.expectRevert(EthFaucet.RegistryBackend.selector);
+        faucet.check(user2);
         vm.prank(user2);
-        vm.expectRevert(EthFaucet.NotInWhitelist.selector);
+        vm.expectRevert(EthFaucet.RegistryBackend.selector);
         faucet.gimme();
     }
 
     /*------------------------------------------------------------------
-      FINDING: nextTime() with an unset periodChecker reverts on
-      abi.decode of empty returndata instead of PeriodBackendError,
-      because a call to address(0) succeeds.
+      L-24 (FIXED): missing or short numeric replies use the dedicated
+      PeriodBackendError rather than bubbling an ABI decode failure.
     ------------------------------------------------------------------*/
-    function test_EF_nextTimeWithUnsetPeriodCheckerRevertsUndecodably() public {
+    function test_EF_nextTimeWithUnsetPeriodCheckerRevertsDedicatedError() public {
         assertEq(faucet.periodChecker(), address(0));
         (bool ok, bytes memory ret) = address(0).call(abi.encodeWithSignature("next(address)", user1));
         assertTrue(ok, "call to address(0) succeeds");
         assertEq(ret.length, 0, "with empty returndata");
 
-        vm.expectRevert();
+        vm.expectRevert(EthFaucet.PeriodBackendError.selector);
         faucet.nextTime(user1);
     }
 

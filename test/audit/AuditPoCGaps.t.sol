@@ -76,22 +76,20 @@ contract AuditPoCGapsTest is Test {
     }
 
     // =====================================================================
-    // L-28  EthFaucet.giveTo(address(0)) burns ETH: no zero-recipient check.
-    //       The unbounded loop variant is closed by the H-4 fix; what remains
-    //       is one burn per period, and only where the operator's registry
-    //       admits the zero address.
+    // L-28 (FIXED)  giveTo rejects the null recipient before touching either
+    //       backend, so ETH cannot be burned and no cooldown is consumed.
     // =====================================================================
     function test_POC_L28_ungatedLoopIsClosedByFailClosedGating() public {
         EthFaucet f = _faucet(0.5 ether);
         vm.deal(address(f), 5 ether);
 
-        vm.expectRevert(EthFaucet.RegistryBackend.selector);
+        vm.expectRevert(EthFaucet.InvalidAddress.selector);
         f.giveTo(address(0));
 
         assertEq(address(f).balance, 5 ether, "nothing burned on an unconfigured faucet");
     }
 
-    function test_POC_L28_giveToZeroAddress_burnsEth_periodGated() public {
+    function test_POC_L28_giveToZeroAddress_isRejected_periodGated() public {
         EthFaucet f = _faucet(0.5 ether);
         PeriodSimple ps = _period(address(f), 1 days);
         GapRegistry reg = new GapRegistry();
@@ -102,17 +100,11 @@ contract AuditPoCGapsTest is Test {
         vm.stopPrank();
         vm.deal(address(f), 5 ether);
 
-        uint256 zeroBalBefore = address(0).balance;
-        f.giveTo(address(0)); // burns once: poke(address(0)) succeeds
-        assertEq(address(0).balance - zeroBalBefore, 0.5 ether, "burned despite the cooldown gate");
-
-        // The cooldown now keys on address(0), so the burn is rate-limited —
-        // but it repeats every period forever. Only the registry rejects 0.
-        vm.expectRevert(EthFaucet.PeriodBackend.selector);
+        vm.expectRevert(EthFaucet.InvalidAddress.selector);
         f.giveTo(address(0));
-        vm.warp(block.timestamp + 1 days + 1);
-        f.giveTo(address(0)); // burns again
-        assertEq(address(0).balance - zeroBalBefore, 1 ether, "burn repeats every period");
+
+        assertEq(address(f).balance, 5 ether, "nothing burned");
+        assertEq(ps.lastUsed(address(0)), 0, "cooldown untouched");
     }
 
     // =====================================================================
@@ -306,19 +298,20 @@ contract AuditPoCGapsTest is Test {
     address user2 = makeAddr("user2");
 
     // =====================================================================
-    // I-15  withdrawLiquidity has no zero-address check on `to`: an operator
-    //       typo burns pool assets instead of recovering them.
+    // I-15 (FIXED)  withdrawLiquidity rejects the null recipient, so an
+    //       operator typo cannot burn pool assets.
     // =====================================================================
-    function test_POC_I15_withdrawLiquidity_toZeroAddress_burnsTokens() public {
+    function test_POC_I15_withdrawLiquidity_toZeroAddress_isRejected() public {
         GapERC20 tkn = new GapERC20("T", "T", 18);
         SwapPool p = _pool(address(0), false);
         tkn.mint(address(p), 1_000e18);
 
         vm.prank(owner);
-        p.withdrawLiquidity(address(tkn), address(0), 400e18); // succeeds
+        vm.expectRevert(SwapPool.InvalidRecipient.selector);
+        p.withdrawLiquidity(address(tkn), address(0), 400e18);
 
-        assertEq(tkn.balanceOf(address(0)), 400e18, "tokens burned at the zero address");
-        assertEq(tkn.balanceOf(address(p)), 600e18, "gone from the pool");
+        assertEq(tkn.balanceOf(address(0)), 0, "nothing burned");
+        assertEq(tkn.balanceOf(address(p)), 1_000e18, "pool balance intact");
     }
 }
 

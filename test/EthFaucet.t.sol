@@ -19,6 +19,7 @@ contract EthFaucetTest is Test {
     error PeriodBackend();
     error RegistryBackend();
     error PeriodBackendError();
+    error WithdrawFailed();
     error Unauthorized();
 
     EthFaucet faucet;
@@ -36,6 +37,7 @@ contract EthFaucetTest is Test {
     event Give(address indexed _recipient, address indexed _token, uint256 _amount);
     event FaucetAmountChange(uint256 _amount);
     event SealStateChange(uint256 indexed _sealState, address _registry, address _periodChecker);
+    event Withdraw(address indexed _recipient, uint256 _amount);
 
     function setUp() public {
         registry = new MockRegistry();
@@ -288,6 +290,62 @@ contract EthFaucetTest is Test {
         vm.prank(user1);
         vm.expectRevert(InsufficientBalance.selector);
         faucet.giveTo(user2);
+    }
+
+    function test_giveTo_revertIf_zero_recipient() public {
+        _configureGating();
+        vm.deal(address(faucet), 10 ether);
+
+        vm.expectRevert(EthFaucet.InvalidAddress.selector);
+        faucet.giveTo(address(0));
+
+        assertEq(address(faucet).balance, 10 ether);
+        assertEq(periodChecker.lastUsed(address(0)), 0, "invalid recipient did not consume cooldown");
+    }
+
+    function test_withdraw() public {
+        vm.deal(address(faucet), 2 ether);
+
+        vm.expectEmit(true, false, false, true);
+        emit Withdraw(user1, 0.75 ether);
+        vm.prank(owner);
+        assertEq(faucet.withdraw(payable(user1), 0.75 ether), 0.75 ether);
+
+        assertEq(user1.balance, 0.75 ether);
+        assertEq(address(faucet).balance, 1.25 ether);
+    }
+
+    function test_withdraw_remainsAvailableAfterSeal() public {
+        _configureGating();
+        vm.deal(address(faucet), 0.5 ether);
+        vm.startPrank(owner);
+        faucet.seal(7);
+        faucet.withdraw(payable(user1), 0.5 ether);
+        vm.stopPrank();
+
+        assertEq(user1.balance, 0.5 ether);
+        assertEq(address(faucet).balance, 0);
+    }
+
+    function test_withdraw_revertIf_not_owner() public {
+        vm.deal(address(faucet), 1 ether);
+        vm.prank(user1);
+        vm.expectRevert(Unauthorized.selector);
+        faucet.withdraw(payable(user1), 1 ether);
+    }
+
+    function test_withdraw_revertIf_zero_recipient() public {
+        vm.deal(address(faucet), 1 ether);
+        vm.prank(owner);
+        vm.expectRevert(EthFaucet.InvalidAddress.selector);
+        faucet.withdraw(payable(address(0)), 1 ether);
+    }
+
+    function test_withdraw_revertIf_insufficient_balance() public {
+        vm.deal(address(faucet), 1 ether);
+        vm.prank(owner);
+        vm.expectRevert(InsufficientBalance.selector);
+        faucet.withdraw(payable(user1), 1 ether + 1);
     }
 
     function test_tokenAmount() public view {

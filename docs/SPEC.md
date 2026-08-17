@@ -479,6 +479,7 @@ Native ETH faucet gated by a whitelist and a cooldown. Both gates are mandatory:
 - `setRegistry(address)`: set the whitelist contract. Owner only. Reverts with `Sealed` if `REGISTRY_STATE` is sealed, and with `InvalidAddress` on the zero address, so gating cannot be removed once set.
 - `setPeriodChecker(address)`: set the cooldown contract. Owner only. Same restrictions as `setRegistry`.
 - `seal(state)`: permanently lock configuration fields. Owner only. Reverts with `InvalidState` if any requested bit names a field that is still unconfigured — an unset `registry` or `periodChecker`, or a zero `amount` — so sealing can never freeze the faucet in an unusable state.
+- `withdraw(recipient, value)`: recover native ETH to a nonzero recipient. Owner only. This remains available after sealing so a bad configuration or residual balance cannot permanently strand ETH.
 
 **Gating is mandatory.** After `initialize` both `registry` and `periodChecker` are the zero address, and every claim reverts (`RegistryBackend`, then `PeriodBackend`). Wire both before funding the faucet; see [DEPLOY.md](DEPLOY.md#ethfaucet).
 
@@ -492,10 +493,13 @@ Native ETH faucet gated by a whitelist and a cooldown. Both gates are mandatory:
 - `periodChecker.poke(address) -> bool`: record usage.
 - `periodChecker.next(address) -> uint256`: next allowed timestamp.
 
+Backend calls require at least one ABI word of returndata. Registry and period booleans must be canonically encoded as `0` or `1`; malformed replies revert with `RegistryBackend` or `PeriodBackend` instead of triggering an out-of-bounds panic or being interpreted as a different boolean.
+
 **Events:**
 - `Give(recipient, token, amount)`: `token` is always `address(0)` (ETH).
 - `FaucetAmountChange(amount)`
 - `SealStateChange(sealState, registry, periodChecker)`: also emitted by `setRegistry` and `setPeriodChecker`, not just `seal`.
+- `Withdraw(recipient, amount)`
 
 ---
 
