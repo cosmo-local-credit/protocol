@@ -3,10 +3,9 @@
 // targeted PoCs did not reach, and behavioural assertions for the handful of
 // external functions no other audit test touches.
 //
-// The SwapPool invariant is deliberately configured to EXCLUDE the three known
-// causes of `fees[] > balance` (M-2 reentrancy, M-6 withdrawLiquidity, L-2
-// coupled mode). If it holds, those three are exhaustive. If it fails, there is
-// a fourth cause the targeted analysis missed.
+// The SwapPool invariant exercises swaps, fee collection, and emergency
+// liquidity withdrawals in decoupled mode. Reentrancy and reserved-fee
+// withdrawals are fixed; coupled-mode fee re-lending remains outside the model.
 pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
@@ -82,7 +81,7 @@ contract InvPfc is IProtocolFeeController {
     }
 }
 
-/// Bounded action surface. Deliberately omits withdrawLiquidity (M-6).
+/// Bounded action surface, including the M-6 emergency-withdrawal path.
 contract PoolHandler is Test {
     SwapPool public pool;
     InvERC20 public a;
@@ -142,6 +141,16 @@ contract PoolHandler is Test {
         } catch {}
     }
 
+    function withdrawLiquidity(uint256 seed, bool which) external {
+        InvERC20 token = which ? a : b;
+        uint256 balance = token.balanceOf(address(pool));
+        uint256 reserved = pool.fees(address(token));
+        uint256 available = balance > reserved ? balance - reserved : 0;
+        uint256 value = bound(seed, 0, available);
+        vm.prank(owner);
+        try pool.withdrawLiquidity(address(token), address(this), value) {} catch {}
+    }
+
     function changeFee(uint256 seed) external {
         fp.setPpm(bound(seed, 0, 900_000));
     }
@@ -183,8 +192,7 @@ contract AuditInvariantTest is Test {
         targetContract(address(handler));
     }
 
-    /// The property M-2, M-6 and L-2 each break. With all three excluded by
-    /// construction, does anything else break it?
+    /// M-2 and M-6 are exercised as fixed paths; coupled-mode L-2 is excluded.
     function invariant_feesNeverExceedBalance() public view {
         assertLe(pool.fees(address(a)), a.balanceOf(address(pool)), "fees[a] > balance");
         assertLe(pool.fees(address(b)), b.balanceOf(address(pool)), "fees[b] > balance");

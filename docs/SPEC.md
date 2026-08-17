@@ -84,12 +84,12 @@ Automated market maker for token swaps, with configurable fees, deposit limits, 
 Liquidity:
 - `initialize(name, symbol, decimals, owner, feePolicy, feeAddress, tokenRegistry, tokenLimiter, quoter, feesDecoupled, protocolFeeController)`: one-time setup.
 - `deposit(token, value)`: add liquidity. Transfers `value` of `token` from the caller into the pool, measures the balance delta, and returns and emits the amount actually received. Reverts with `TransferFailed` if the pool received nothing.
-- `withdrawLiquidity(token, to, amount)`: owner-only emergency withdrawal of pool liquidity. Use a timelock or multisig owner.
+- `withdrawLiquidity(token, to, amount)`: owner-only emergency withdrawal of pool liquidity. In decoupled mode, accrued `fees[token]` are reserved and cannot be withdrawn through this path. The recipient must be non-zero. Use a timelock or multisig owner.
 
 Swapping. All three return the net amount transferred to the recipient. `tokenIn` and `tokenOut` must differ.
 - `withdraw(tokenOut, tokenIn, value)`: swap `value` of `tokenIn` for `tokenOut`. Output goes to `msg.sender`.
 - `withdraw(tokenOut, tokenIn, value, recipient)`: same swap, output goes to `recipient`. Reverts with `InvalidRecipient` if `recipient` is the zero address.
-- `withdraw(tokenOut, tokenIn, value, recipient, minAmountOut, deadline)`: bounded swap. Reverts with `Expired` if `block.timestamp > deadline`, and with `InsufficientOutput` if the net amount transferred is below `minAmountOut`. Integrators should prefer this form: the executed price is read from `quoter` and `feePolicy` at execution time, so an unbounded swap has no protection against a price move between quoting and settlement.
+- `withdraw(tokenOut, tokenIn, value, recipient, minAmountOut, deadline)`: bounded swap. Reverts with `Expired` if `block.timestamp > deadline`, and with `InsufficientOutput` if the recipient's observed balance increase is below `minAmountOut`. Integrators should prefer this form: the executed price is read from `quoter` and `feePolicy` at execution time, so an unbounded swap has no protection against a price move between quoting and settlement.
 
 Fee collection (owner only):
 - `withdraw(tokenOut)`: send all accumulated pool fees for `tokenOut` to `feeAddress`.
@@ -155,6 +155,7 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 
 **Validation:**
 - The token must pass the registry `have(token)` check, if `tokenRegistry` is set.
+- Both `tokenIn` and `tokenOut` must pass the registry check for a swap; de-listing therefore stops entry and exit through the trading path.
 - A deposit must not push the pool balance above the limiter cap, if `tokenLimiter` is set. Note that a limit of `0` blocks all deposits (see [Limiter](#limiter)).
 - The pool must hold enough `tokenOut` to cover `quotedValue`.
 - The pool must actually receive tokens. `deposit(token, 0)` and a swap with `value == 0` revert `TransferFailed` rather than succeeding as no-ops, which is a change from earlier versions that credited the requested amount without measuring it.
@@ -181,7 +182,8 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 
 **Events:**
 - `Deposit(initiator, tokenIn, amountIn)`: emitted whenever tokens enter the pool. This fires on an explicit `deposit()` call and also at the start of every swap, because a swap deposits `tokenIn` first. `amountIn` is the measured balance delta, not the requested amount. Expect a `Deposit` immediately before each `Swap`.
-- `Swap(initiator, tokenIn, tokenOut, amountIn, amountOut, fee)`: emitted on every swap. `initiator` is always `msg.sender`. `amountIn` is the amount the pool received and `amountOut` is the net amount transferred to the recipient, so settlement is verifiable from the log alone. `fee` is the pool fee only and excludes the protocol fee; on a pair quoted 1:1 the protocol fee is `amountIn - amountOut - fee`.
+- `Swap(initiator, tokenIn, tokenOut, amountIn, amountOut, fee)`: emitted on every swap. `initiator` is always `msg.sender`. `amountIn` is the amount the pool received and `amountOut` is the recipient's observed balance increase. `fee` is the pool fee only.
+- `SwapSettlement(initiator, tokenIn, tokenOut, amountIn, quotedAmountOut, nominalAmountOut, amountOut, poolFee, protocolFee)`: detailed settlement event. It exposes the quote, both fees, the nominal transfer and the recipient's observed balance increase; the last two differ for fee-on-transfer output tokens.
 - `Collect(feeAddress, tokenOut, amountOut)`: emitted when the owner withdraws accumulated fees.
 - `SealStateChange(final, sealState)`: emitted on each `seal()` call. `final` is true once `sealState` covers `fullSealMask`.
 

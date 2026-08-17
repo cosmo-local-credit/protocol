@@ -250,11 +250,9 @@ contract AuditPoCSealTest is Test {
     // B. withdrawLiquidity vs fees[]
     // =====================================================================
 
-    /// B1: withdrawLiquidity ignores fees[] entirely. In feesDecoupled mode
-    ///     the owner takes the reserved fees (which belong to feeAddress),
-    ///     leaves fees[token] > balanceOf(token), and thereby DoSes every
-    ///     future swap of that tokenOut. No hostile token, no reentrancy.
-    function test_B1_withdrawLiquidity_stealsReservedFees_andDoSesPool() public {
+    /// B1 (FIXED): liquidity withdrawals in decoupled mode exclude fees owed
+    ///     to feeAddress, so accounting remains solvent and collectible.
+    function test_B1_withdrawLiquidity_preservesReservedFees() public {
         VsERC20 a = new VsERC20("A", "A", 18);
         VsERC20 b = new VsERC20("B", "B", 18);
 
@@ -274,32 +272,26 @@ contract AuditPoCSealTest is Test {
         assertEq(p.fees(address(b)), 10e18, "10 B reserved for feeAddress");
         assertEq(b.balanceOf(address(p)), 910e18);
 
-        // Owner sweeps the whole balance, including the reserved 10.
+        // The owner can withdraw all 900 units of unreserved liquidity, but
+        // cannot take even one unit of the 10-unit fee reserve.
         address thief = makeAddr("thief");
         vm.prank(owner);
-        p.withdrawLiquidity(address(b), thief, 910e18);
-
-        assertEq(b.balanceOf(thief), 910e18, "owner took feeAddress's 10 B too");
-        assertGt(p.fees(address(b)), b.balanceOf(address(p)), "fees[] now exceeds balance");
-
-        // Consequence 1: fee collection for feeAddress is permanently broken.
-        vm.prank(owner);
-        vm.expectRevert();
-        p.withdraw(address(b));
-
-        // Consequence 2: available liquidity is pinned at 0, so even a fresh
-        // donation smaller than fees[] cannot restart the pool.
-        b.mint(address(p), 9e18);
-        a.mint(user, 1e18);
-        vm.startPrank(user);
         vm.expectRevert(SwapPool.InsufficientBalance.selector);
-        p.withdraw(address(b), address(a), 1e18);
-        vm.stopPrank();
+        p.withdrawLiquidity(address(b), thief, 901e18);
+        vm.prank(owner);
+        p.withdrawLiquidity(address(b), thief, 900e18);
+
+        assertEq(b.balanceOf(thief), 900e18);
+        assertEq(b.balanceOf(address(p)), 10e18, "reserve remains in the pool");
+        assertEq(p.fees(address(b)), 10e18, "accounting remains fully backed");
+
+        vm.prank(owner);
+        assertEq(p.withdraw(address(b)), 10e18, "feeAddress can still collect everything owed");
     }
 
-    /// B2: withdrawLiquidity is not sealable either, so the FEEADDRESS seal
-    ///     (the commitment "fees go to this beneficiary") is worthless.
-    function test_B2_feeAddressSeal_doesNotProtectFees() public {
+    /// B2 (FIXED): the fee reserve remains protected even when the pool owner
+    ///     uses the separate emergency liquidity-withdrawal authority.
+    function test_B2_feeAddressSeal_protectsReservedFees() public {
         VsERC20 a = new VsERC20("A", "A", 18);
         VsERC20 b = new VsERC20("B", "B", 18);
         SwapPool p = _pool(address(0), true);
@@ -321,8 +313,12 @@ contract AuditPoCSealTest is Test {
         assertEq(reserved, 10e18);
 
         vm.prank(owner);
-        p.withdrawLiquidity(address(b), owner, reserved);
-        assertEq(b.balanceOf(owner), reserved, "sealed beneficiary's fees taken anyway");
+        vm.expectRevert(SwapPool.InsufficientBalance.selector);
+        p.withdrawLiquidity(address(b), owner, 901e18);
+        assertEq(b.balanceOf(owner), 0, "owner cannot take the reserved fee");
+
+        vm.prank(owner);
+        assertEq(p.withdraw(address(b)), reserved, "sealed fee beneficiary remains payable");
     }
 
     // =====================================================================

@@ -438,10 +438,9 @@ contract AuditPoCTest is Test {
     }
 
     // =====================================================================
-    // F-05  tokenOut is never checked against tokenRegistry, so the
-    //       whitelist only constrains the input side of a swap.
+    // F-05 (FIXED) Both swap legs must pass tokenRegistry.
     // =====================================================================
-    function test_POC_F05_tokenOut_bypassesRegistryWhitelist() public {
+    function test_F05_tokenOut_mustPassRegistryWhitelist() public {
         AudERC20 allowed = new AudERC20("Allowed", "ALW", 18);
         AudERC20 delisted = new AudERC20("Delisted", "DEL", 18);
 
@@ -461,12 +460,13 @@ contract AuditPoCTest is Test {
         vm.expectRevert(SwapPool.UnauthorizedToken.selector);
         p.deposit(address(delisted), 1e18);
 
-        // ...but receiving it out of the pool is not.
+        // Receiving it out of the pool is blocked by the same whitelist.
         allowed.approve(address(p), type(uint256).max);
+        vm.expectRevert(SwapPool.UnauthorizedToken.selector);
         p.withdraw(address(delisted), address(allowed), 1_000e18);
         vm.stopPrank();
 
-        assertEq(delisted.balanceOf(attacker), 1_001e18, "unregistered token extracted");
+        assertEq(delisted.balanceOf(attacker), 1e18, "unregistered output remains ineligible");
     }
 
     // =====================================================================

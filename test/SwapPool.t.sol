@@ -416,6 +416,48 @@ contract SwapPoolTest is Test {
         pool.withdrawLiquidity(address(tokenA), user1, 1000e18);
     }
 
+    function test_withdrawLiquidity_revertIf_zero_recipient() public {
+        vm.prank(owner);
+        vm.expectRevert(InvalidRecipient.selector);
+        pool.withdrawLiquidity(address(tokenA), address(0), 1e18);
+    }
+
+    function test_withdrawLiquidity_preservesDecoupledFeeReserves() public {
+        SwapPool decoupledPool = SwapPool(LibClone.clone(address(implementation)));
+        decoupledPool.initialize(
+            "Decoupled Pool",
+            "DSWAP",
+            18,
+            owner,
+            address(feePolicy),
+            feeAddress,
+            address(tokenRegistry),
+            address(limiter),
+            address(quoter),
+            true,
+            address(protocolFeeController)
+        );
+        limiter.setLimit(address(tokenA), address(decoupledPool), type(uint256).max);
+        limiter.setLimit(address(tokenB), address(decoupledPool), type(uint256).max);
+        tokenB.mint(address(decoupledPool), 1000e18);
+        feePolicy.setFee(address(tokenA), address(tokenB), 100_000); // 10%
+
+        vm.startPrank(user1);
+        tokenA.approve(address(decoupledPool), 100e18);
+        decoupledPool.withdraw(address(tokenB), address(tokenA), 100e18);
+        vm.stopPrank();
+
+        assertEq(decoupledPool.fees(address(tokenB)), 10e18);
+        assertEq(tokenB.balanceOf(address(decoupledPool)), 910e18);
+
+        vm.startPrank(owner);
+        vm.expectRevert(InsufficientBalance.selector);
+        decoupledPool.withdrawLiquidity(address(tokenB), owner, 901e18);
+        decoupledPool.withdrawLiquidity(address(tokenB), owner, 900e18);
+        assertEq(decoupledPool.withdraw(address(tokenB)), 10e18, "reserved fees remain collectible");
+        vm.stopPrank();
+    }
+
     function test_getAmountOut() public {
         feePolicy.setFee(address(tokenA), address(tokenB), 10000); // 1%
 
@@ -1138,6 +1180,52 @@ contract SwapPoolTest is Test {
         assertEq(fot.balanceOf(address(pool)), 900e18, "pool banked 900");
         assertEq(out, 891e18, "payout is priced on the 900 received");
         assertLe(out, fot.balanceOf(address(pool)), "the pool never pays out more than it took in");
+    }
+
+    function test_swap_feeOnTransferOutput_returnsAmountActuallyReceived() public {
+        MockFeeOnTransferERC20 fot = new MockFeeOnTransferERC20(1000); // 10%
+        tokenRegistry.addToken(address(fot));
+        limiter.setLimit(address(fot), address(pool), type(uint256).max);
+        fot.mint(address(pool), 1000e18);
+        feePolicy.setFee(address(tokenA), address(fot), 0);
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), 100e18);
+        uint256 received = pool.withdraw(address(fot), address(tokenA), 100e18);
+        vm.stopPrank();
+
+        assertEq(received, 90e18, "return value is the recipient balance delta");
+        assertEq(fot.balanceOf(user1), 90e18);
+    }
+
+    function test_boundedSwap_feeOnTransferOutput_enforcesActualMinimum() public {
+        MockFeeOnTransferERC20 fot = new MockFeeOnTransferERC20(1000); // 10%
+        tokenRegistry.addToken(address(fot));
+        limiter.setLimit(address(fot), address(pool), type(uint256).max);
+        fot.mint(address(pool), 1000e18);
+        feePolicy.setFee(address(tokenA), address(fot), 0);
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), 200e18);
+        vm.expectRevert(SwapPool.InsufficientOutput.selector);
+        pool.withdraw(address(fot), address(tokenA), 100e18, user1, 100e18, block.timestamp);
+
+        uint256 received = pool.withdraw(address(fot), address(tokenA), 100e18, user1, 90e18, block.timestamp);
+        vm.stopPrank();
+
+        assertEq(received, 90e18);
+        assertEq(fot.balanceOf(user1), 90e18, "failed first attempt rolled back completely");
+    }
+
+    function test_swap_revertIf_outputTokenIsNotRegistered() public {
+        MockERC20 unregistered = new MockERC20("Unregistered", "NO", 18);
+        unregistered.mint(address(pool), 1000e18);
+
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), 100e18);
+        vm.expectRevert(UnauthorizedToken.selector);
+        pool.withdraw(address(unregistered), address(tokenA), 100e18);
+        vm.stopPrank();
     }
 
     function test_swap_revertIf_tokenDeliversNothing() public {

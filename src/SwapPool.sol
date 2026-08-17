@@ -84,6 +84,21 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         uint256 fee
     );
 
+    /// @dev Detailed settlement data for indexers. `amountOut` is the balance
+    /// delta observed at the recipient, which can differ from `nominalAmountOut`
+    /// for fee-on-transfer output tokens.
+    event SwapSettlement(
+        address indexed initiator,
+        address indexed tokenIn,
+        address indexed tokenOut,
+        uint256 amountIn,
+        uint256 quotedAmountOut,
+        uint256 nominalAmountOut,
+        uint256 amountOut,
+        uint256 poolFee,
+        uint256 protocolFee
+    );
+
     // Emitted only after an explicit liquidity donation
     // Users can implictly donate via a normal send
     event Deposit(address indexed initiator, address indexed tokenIn, uint256 amountIn);
@@ -363,6 +378,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         returns (uint256 netValue)
     {
         if (_inToken == _outToken) revert InvalidToken();
+        mustAllowedToken(_outToken, tokenRegistry);
         _mustFeeDomain(_inToken, _outToken);
 
         uint256 received = _deposit(_inToken, _value);
@@ -384,18 +400,33 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         // The pool owner always receives their full totalFee.
         // Floor at DEFAULT_FEE_PPM (1%) of quotedValue prevents gaming via tiny pool fees.
         uint256 protocolFee = _calcProtocolFee(quotedValue, totalFee);
-        netValue = _netAfterFees(quotedValue, totalFee, protocolFee);
+        uint256 nominalNetValue = _netAfterFees(quotedValue, totalFee, protocolFee);
 
         if (protocolFee > 0) {
             if (!IERC20(_outToken).transfer(_getProtocolRecipient(), protocolFee)) revert TransferFailed();
         }
-        if (!IERC20(_outToken).transfer(_recipient, netValue)) revert TransferFailed();
+        uint256 recipientBalanceBefore = IERC20(_outToken).balanceOf(_recipient);
+        if (!IERC20(_outToken).transfer(_recipient, nominalNetValue)) revert TransferFailed();
+        uint256 recipientBalanceAfter = IERC20(_outToken).balanceOf(_recipient);
+        netValue = recipientBalanceAfter > recipientBalanceBefore ? recipientBalanceAfter - recipientBalanceBefore : 0;
+        if (netValue == 0) revert InsufficientOutput();
 
         if (totalFee > 0 && feeAddress != address(0)) {
             fees[_outToken] += totalFee;
         }
 
         emit Swap(msg.sender, _inToken, _outToken, received, netValue, totalFee);
+        emit SwapSettlement(
+            msg.sender,
+            _inToken,
+            _outToken,
+            received,
+            quotedValue,
+            nominalNetValue,
+            netValue,
+            totalFee,
+            protocolFee
+        );
     }
 
     function _getProtocolRecipient() internal view returns (address) {
@@ -456,8 +487,11 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     // Certain use-cases may require this functionality.
     // It is recommended that the owner be a timelock or multisig or both.
     function withdrawLiquidity(address token, address to, uint256 amount) external onlyOwner returns (uint256) {
+        if (to == address(0)) revert InvalidRecipient();
         uint256 balance = IERC20(token).balanceOf(address(this));
-        if (amount > balance) revert InsufficientBalance();
+        uint256 reserved = feesDecoupled ? fees[token] : 0;
+        uint256 available = balance > reserved ? balance - reserved : 0;
+        if (amount > available) revert InsufficientBalance();
 
         bool success = IERC20(token).transfer(to, amount);
         if (!success) revert TransferFailed();
