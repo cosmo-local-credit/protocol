@@ -790,6 +790,19 @@ contract SwapPoolTest is Test {
         assertEq(p.sealState(), 0, "nothing was locked");
     }
 
+    function test_seal_revertIf_feeAddressUnset() public {
+        vm.startPrank(owner);
+        pool.setFeeAddress(address(0));
+
+        vm.expectRevert(InvalidState.selector);
+        pool.seal(2);
+        vm.expectRevert(InvalidState.selector);
+        pool.seal(31);
+        vm.stopPrank();
+
+        assertEq(pool.sealState(), 0, "nothing was locked");
+    }
+
     function test_seal_revertIf_limiterUnset() public {
         SwapPool p = _ungatedPool();
 

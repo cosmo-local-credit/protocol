@@ -321,6 +321,45 @@ contract AuditPoCSealTest is Test {
         assertEq(p.withdraw(address(b)), reserved, "sealed fee beneficiary remains payable");
     }
 
+    /// B3 (FIXED): a zero feeAddress cannot be sealed, so the owner can repair
+    ///     the beneficiary and collect a decoupled fee reserve.
+    function test_B3_zeroFeeAddressSeal_isRejectedAndFeesRemainRecoverable() public {
+        VsERC20 a = new VsERC20("A", "A", 18);
+        VsERC20 b = new VsERC20("B", "B", 18);
+        SwapPool p = _pool(address(0), true);
+        _allow(p, address(a), type(uint256).max);
+        _allow(p, address(b), type(uint256).max);
+        feePolicy.setFee(address(a), address(b), 100_000); // 10%
+        b.mint(address(p), 2_000e18);
+        a.mint(user, 200e18);
+
+        vm.startPrank(user);
+        a.approve(address(p), type(uint256).max);
+        p.withdraw(address(b), address(a), 200e18);
+        vm.stopPrank();
+
+        assertEq(p.fees(address(b)), 20e18);
+        assertEq(b.balanceOf(address(p)), 1_820e18);
+
+        vm.startPrank(owner);
+        p.setFeeAddress(address(0));
+        vm.expectRevert(SwapPool.InvalidState.selector);
+        p.seal(2); // FEEADDRESS_STATE
+        assertEq(p.sealState(), 0, "invalid seal changes no state");
+
+        p.setFeeAddress(feeAddress);
+        p.seal(2);
+        p.withdrawLiquidity(address(b), owner, 1_800e18);
+        vm.expectRevert(SwapPool.InsufficientBalance.selector);
+        p.withdrawLiquidity(address(b), owner, 1);
+        assertEq(p.withdraw(address(b)), 20e18);
+        vm.stopPrank();
+
+        assertEq(b.balanceOf(address(p)), 0, "liquidity and fees remain independently recoverable");
+        assertEq(b.balanceOf(feeAddress), 20e18, "fee beneficiary receives the reserve");
+        assertEq(p.fees(address(b)), 0, "liability is fully settled");
+    }
+
     // =====================================================================
     // C. UPGRADE SAFETY
     // =====================================================================
