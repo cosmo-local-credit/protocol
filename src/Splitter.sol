@@ -8,6 +8,7 @@ import {ISplitter} from "./interfaces/ISplitter.sol";
 import "solady/auth/Ownable.sol";
 import "solady/utils/Initializable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract Splitter is ISplitter, Ownable, Initializable {
     uint256 public constant PERCENTAGE_SCALE = 1_000_000;
@@ -18,8 +19,12 @@ contract Splitter is ISplitter, Ownable, Initializable {
     error DuplicateAccount();
     error AllocationMustBePositive();
     error InvalidHash();
+    error InvalidRecipient();
 
     bytes32 internal _splitHash;
+    uint256 internal _splitVersion;
+    mapping(uint256 => mapping(address => uint256)) internal _retainedAmount;
+    mapping(uint256 => mapping(address => mapping(address => uint256))) internal _fractionalCarry;
 
     constructor() {
         _disableInitializers();
@@ -34,11 +39,13 @@ contract Splitter is ISplitter, Ownable, Initializable {
         _initializeOwner(owner);
         _validateSplit(accounts, percentAllocations);
         _splitHash = _hashSplit(accounts, percentAllocations);
+        _splitVersion = 1;
     }
 
     function updateSplit(address[] calldata accounts, uint32[] calldata percentAllocations) external onlyOwner {
         _validateSplit(accounts, percentAllocations);
         _splitHash = _hashSplit(accounts, percentAllocations);
+        ++_splitVersion;
     }
 
     function distributeETH(address[] calldata accounts, uint32[] calldata percentAllocations) external {
@@ -58,8 +65,6 @@ contract Splitter is ISplitter, Ownable, Initializable {
         _validateHash(accounts, percentAllocations);
 
         uint256 grossAmount = IERC20(token).balanceOf(address(this));
-        if (grossAmount == 0) return;
-
         _distributeERC20(token, grossAmount, accounts, percentAllocations);
     }
 
@@ -79,12 +84,13 @@ contract Splitter is ISplitter, Ownable, Initializable {
         if (_splitHash != _hashSplit(accounts, percentAllocations)) revert InvalidHash();
     }
 
-    function _validateSplit(address[] calldata accounts, uint32[] calldata percentAllocations) internal pure {
+    function _validateSplit(address[] calldata accounts, uint32[] calldata percentAllocations) internal view {
         if (accounts.length < 2) revert TooFewAccounts();
         if (accounts.length != percentAllocations.length) revert AccountsAndAllocationsMismatch();
 
         uint256 sum;
         for (uint256 i; i < accounts.length; ++i) {
+            if (accounts[i] == address(0) || accounts[i] == address(this)) revert InvalidRecipient();
             uint32 alloc = percentAllocations[i];
             if (alloc == 0) revert AllocationMustBePositive();
             if (uint256(alloc) > PERCENTAGE_SCALE) revert InvalidAllocationsSum();
@@ -104,17 +110,10 @@ contract Splitter is ISplitter, Ownable, Initializable {
     function _distributeETH(uint256 amountToSplit, address[] calldata accounts, uint32[] calldata percentAllocations)
         internal
     {
-        uint256 running;
-        uint256 last = accounts.length - 1;
-        unchecked {
-            for (uint256 i; i < last; ++i) {
-                uint256 share = _scaleAmountByPercentage(amountToSplit, percentAllocations[i]);
-                running += share;
-                if (share != 0) SafeTransferLib.safeTransferETH(accounts[i], share);
-            }
+        uint256[] memory shares = _calculateShares(address(0), amountToSplit, accounts, percentAllocations);
+        for (uint256 i; i < accounts.length; ++i) {
+            if (shares[i] != 0) SafeTransferLib.safeTransferETH(accounts[i], shares[i]);
         }
-        uint256 remainder = amountToSplit - running;
-        if (remainder != 0) SafeTransferLib.safeTransferETH(accounts[last], remainder);
     }
 
     function _distributeERC20(
@@ -123,17 +122,54 @@ contract Splitter is ISplitter, Ownable, Initializable {
         address[] calldata accounts,
         uint32[] calldata percentAllocations
     ) internal {
-        uint256 running;
-        uint256 last = accounts.length - 1;
-        unchecked {
-            for (uint256 i; i < last; ++i) {
-                uint256 share = _scaleAmountByPercentage(amountToSplit, percentAllocations[i]);
-                running += share;
-                if (share != 0) SafeTransferLib.safeTransfer(token, accounts[i], share);
-            }
+        uint256[] memory shares = _calculateShares(token, amountToSplit, accounts, percentAllocations);
+        for (uint256 i; i < accounts.length; ++i) {
+            if (shares[i] != 0) SafeTransferLib.safeTransfer(token, accounts[i], shares[i]);
         }
-        uint256 remainder = amountToSplit - running;
-        if (remainder != 0) SafeTransferLib.safeTransfer(token, accounts[last], remainder);
+    }
+
+    function _calculateShares(
+        address asset,
+        uint256 currentBalance,
+        address[] calldata accounts,
+        uint32[] calldata percentAllocations
+    ) internal returns (uint256[] memory shares) {
+        uint256 version = _splitVersion;
+        uint256 retained = _retainedAmount[version][asset];
+        shares = new uint256[](accounts.length);
+
+        // A negative-rebasing token can make previously retained dust disappear.
+        // Reset the affected asset's fractional state and apportion any surviving
+        // balance from a clean baseline instead of charging the loss to a later deposit.
+        if (currentBalance < retained) {
+            for (uint256 i; i < accounts.length; ++i) {
+                _fractionalCarry[version][asset][accounts[i]] = 0;
+            }
+            retained = 0;
+        }
+
+        uint256 newAmount = currentBalance - retained;
+        uint256 distributed;
+        for (uint256 i; i < accounts.length; ++i) {
+            uint256 share = _calculateShare(version, asset, accounts[i], newAmount, percentAllocations[i]);
+            shares[i] = share;
+            distributed += share;
+        }
+
+        _retainedAmount[version][asset] = currentBalance - distributed;
+    }
+
+    function _calculateShare(uint256 version, address asset, address account, uint256 amount, uint256 allocation)
+        internal
+        returns (uint256 share)
+    {
+        share = _scaleAmountByPercentage(amount, allocation);
+        uint256 carry = _fractionalCarry[version][asset][account] + mulmod(amount, allocation, PERCENTAGE_SCALE);
+        if (carry >= PERCENTAGE_SCALE) {
+            ++share;
+            carry -= PERCENTAGE_SCALE;
+        }
+        _fractionalCarry[version][asset][account] = carry;
     }
 
     function _scaleAmountByPercentage(uint256 amount, uint256 scaledPercent)
@@ -141,8 +177,6 @@ contract Splitter is ISplitter, Ownable, Initializable {
         pure
         returns (uint256 scaledAmount)
     {
-        assembly {
-            scaledAmount := div(mul(amount, scaledPercent), PERCENTAGE_SCALE)
-        }
+        scaledAmount = FixedPointMathLib.fullMulDiv(amount, scaledPercent, PERCENTAGE_SCALE);
     }
 }

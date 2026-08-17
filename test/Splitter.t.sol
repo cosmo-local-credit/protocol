@@ -74,7 +74,7 @@ contract SplitterTest is Test {
         assertEq(address(splitter).balance, 0);
     }
 
-    function test_distributeETH_remainderGoesToLastRecipient() public {
+    function test_distributeETH_fractionalRemainderIsRetained() public {
         address[] memory accounts = new address[](3);
         accounts[0] = r1;
         accounts[1] = r2;
@@ -101,12 +101,12 @@ contract SplitterTest is Test {
         uint256 amount = 1 ether + 1;
         uint256 s1 = (amount * 333_333) / 1_000_000;
         uint256 s2 = (amount * 333_333) / 1_000_000;
-        uint256 s3 = amount - s1 - s2;
+        uint256 s3 = (amount * 333_334) / 1_000_000;
 
         assertEq(r1.balance - r1Before, s1);
         assertEq(r2.balance - r2Before, s2);
         assertEq(r3.balance - r3Before, s3);
-        assertEq(address(splitter).balance, 0);
+        assertEq(address(splitter).balance, amount - s1 - s2 - s3);
     }
 
     function test_distributeERC20_sendsToRecipients() public {
@@ -165,7 +165,7 @@ contract SplitterTest is Test {
         assertEq(token6.balanceOf(address(splitter)), 0);
     }
 
-    function test_distributeERC20_token18Decimals_remainderGoesToLastRecipient() public {
+    function test_distributeERC20_token18Decimals_fractionalRemainderIsRetained() public {
         address[] memory accounts = new address[](3);
         accounts[0] = r1;
         accounts[1] = r2;
@@ -190,12 +190,120 @@ contract SplitterTest is Test {
 
         uint256 s1 = (amount * 333_333) / 1_000_000;
         uint256 s2 = (amount * 333_333) / 1_000_000;
-        uint256 s3 = amount - s1 - s2;
+        uint256 s3 = (amount * 333_334) / 1_000_000;
 
         assertEq(token18.balanceOf(r1) - r1Before, s1);
         assertEq(token18.balanceOf(r2) - r2Before, s2);
         assertEq(token18.balanceOf(r3) - r3Before, s3);
-        assertEq(token18.balanceOf(address(splitter)), 0);
+        assertEq(token18.balanceOf(address(splitter)), amount - s1 - s2 - s3);
+    }
+
+    function test_distributeETH_fractionalCarryConvergesAcrossDrips() public {
+        address[] memory accounts = new address[](2);
+        accounts[0] = r1;
+        accounts[1] = r2;
+        uint32[] memory allocs = new uint32[](2);
+        allocs[0] = 600_000;
+        allocs[1] = 400_000;
+
+        for (uint256 i; i < 5; ++i) {
+            vm.deal(address(splitter), address(splitter).balance + 1);
+            splitter.distributeETH(accounts, allocs);
+        }
+
+        assertEq(r1.balance, 3);
+        assertEq(r2.balance, 2);
+        assertEq(address(splitter).balance, 0);
+    }
+
+    function test_distributeERC20_fractionalCarryConvergesAcrossDrips() public {
+        address[] memory accounts = new address[](2);
+        accounts[0] = r1;
+        accounts[1] = r2;
+        uint32[] memory allocs = new uint32[](2);
+        allocs[0] = 600_000;
+        allocs[1] = 400_000;
+
+        for (uint256 i; i < 5; ++i) {
+            token.mint(address(splitter), 1);
+            splitter.distributeERC20(address(token), accounts, allocs);
+        }
+
+        assertEq(token.balanceOf(r1), 3);
+        assertEq(token.balanceOf(r2), 2);
+        assertEq(token.balanceOf(address(splitter)), 0);
+    }
+
+    function test_distributeERC20_usesFullPrecisionForLargeBalances() public {
+        address[] memory accounts = new address[](2);
+        accounts[0] = r1;
+        accounts[1] = r2;
+        uint32[] memory allocs = new uint32[](2);
+        allocs[0] = 600_000;
+        allocs[1] = 400_000;
+        uint256 amount = type(uint256).max;
+        token.mint(address(splitter), amount);
+
+        splitter.distributeERC20(address(token), accounts, allocs);
+
+        uint256 s1 = amount / 5 * 3 + (amount % 5) * 3 / 5;
+        uint256 s2 = amount / 5 * 2 + (amount % 5) * 2 / 5;
+        assertEq(token.balanceOf(r1), s1);
+        assertEq(token.balanceOf(r2), s2);
+        assertEq(token.balanceOf(address(splitter)), amount - s1 - s2);
+    }
+
+    function test_distributeERC20_recoversIfRetainedDustRebasesAway() public {
+        address[] memory accounts = new address[](2);
+        accounts[0] = r1;
+        accounts[1] = r2;
+        uint32[] memory allocs = new uint32[](2);
+        allocs[0] = 600_000;
+        allocs[1] = 400_000;
+
+        token.mint(address(splitter), 1);
+        splitter.distributeERC20(address(token), accounts, allocs);
+        assertEq(token.balanceOf(address(splitter)), 1);
+
+        token.burn(address(splitter), 1);
+        splitter.distributeERC20(address(token), accounts, allocs);
+        token.mint(address(splitter), 5);
+        splitter.distributeERC20(address(token), accounts, allocs);
+
+        assertEq(token.balanceOf(r1), 3);
+        assertEq(token.balanceOf(r2), 2);
+        assertEq(token.balanceOf(address(splitter)), 0);
+    }
+
+    function testFuzz_distributeETH_dripsMatchCumulativeEntitlements(
+        uint32 p0,
+        uint64 amount0,
+        uint64 amount1,
+        uint64 amount2
+    ) public {
+        p0 = uint32(bound(p0, 1, 999_999));
+        address[] memory accounts = new address[](2);
+        accounts[0] = r1;
+        accounts[1] = r2;
+        uint32[] memory allocs = new uint32[](2);
+        allocs[0] = p0;
+        allocs[1] = 1_000_000 - p0;
+        vm.prank(owner);
+        splitter.updateSplit(accounts, allocs);
+
+        uint256 total;
+        uint64[3] memory amounts = [amount0, amount1, amount2];
+        for (uint256 i; i < amounts.length; ++i) {
+            total += amounts[i];
+            vm.deal(address(splitter), address(splitter).balance + amounts[i]);
+            splitter.distributeETH(accounts, allocs);
+        }
+
+        uint256 expected0 = (total * p0) / 1_000_000;
+        uint256 expected1 = (total * (1_000_000 - p0)) / 1_000_000;
+        assertEq(r1.balance, expected0);
+        assertEq(r2.balance, expected1);
+        assertEq(address(splitter).balance, total - expected0 - expected1);
     }
 
     function test_updateSplit_revertIf_notOwner() public {
@@ -264,6 +372,32 @@ contract SplitterTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(Splitter.DuplicateAccount.selector);
+        splitter.updateSplit(accounts, allocs);
+    }
+
+    function test_updateSplit_revertIf_zeroRecipient() public {
+        address[] memory accounts = new address[](2);
+        accounts[0] = address(0);
+        accounts[1] = r2;
+        uint32[] memory allocs = new uint32[](2);
+        allocs[0] = 600_000;
+        allocs[1] = 400_000;
+
+        vm.prank(owner);
+        vm.expectRevert(Splitter.InvalidRecipient.selector);
+        splitter.updateSplit(accounts, allocs);
+    }
+
+    function test_updateSplit_revertIf_selfRecipient() public {
+        address[] memory accounts = new address[](2);
+        accounts[0] = address(splitter);
+        accounts[1] = r2;
+        uint32[] memory allocs = new uint32[](2);
+        allocs[0] = 600_000;
+        allocs[1] = 400_000;
+
+        vm.prank(owner);
+        vm.expectRevert(Splitter.InvalidRecipient.selector);
         splitter.updateSplit(accounts, allocs);
     }
 
@@ -482,6 +616,10 @@ contract MockERC20 {
 
     function mint(address to, uint256 amount) external {
         balanceOf[to] += amount;
+    }
+
+    function burn(address from, uint256 amount) external {
+        balanceOf[from] -= amount;
     }
 
     function approve(address spender, uint256 amount) external returns (bool) {

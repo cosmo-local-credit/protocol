@@ -142,57 +142,30 @@ contract AuditPoCSplitterTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
-        F-S2: no zero-address / self-address validation on `accounts`
-                            Splitter.sol:82-101
+        M-12 (FIXED): zero and self recipients are rejected before a
+        split can be committed or used.
     //////////////////////////////////////////////////////////////*/
 
-    function test_POC_splitter_acceptsZeroAddressRecipient_burnsETH() public {
+    function test_splitter_zeroAddressRecipientCannotBurnETH() public {
         (address[] memory a, uint32[] memory p) = _two(address(0), r2, 600_000, 400_000);
 
         vm.prank(owner);
-        splitter.updateSplit(a, p); // no ZeroAddress guard
-
-        uint256 burnBefore = address(0).balance;
-        _fund(1 ether);
-        splitter.distributeETH(a, p);
-
-        assertEq(address(0).balance - burnBefore, 0.6 ether, "60% of every deposit is burned to address(0)");
-        assertEq(r2.balance, 0.4 ether);
-        assertEq(address(splitter).balance, 0);
-    }
-
-    function test_POC_splitter_zeroAddressRecipient_bricksERC20Distribution() public {
-        (address[] memory a, uint32[] memory p) = _two(address(0), r2, 600_000, 400_000);
-        vm.prank(owner);
+        vm.expectRevert(Splitter.InvalidRecipient.selector);
         splitter.updateSplit(a, p);
-
-        FvERC20 t = new FvERC20(true); // rejects transfer to address(0), like OZ ERC20
-        t.mint(address(splitter), 1e18);
-
-        vm.expectRevert();
-        splitter.distributeERC20(address(t), a, p);
-        assertEq(t.balanceOf(address(splitter)), 1e18, "tokens permanently undistributable");
     }
 
-    /// The splitter itself can be a recipient. Its share is "paid" to itself,
-    /// so the contract silently violates its own "distribute the entire
-    /// balance" contract and needs unbounded repeat calls to drain.
-    function test_POC_splitter_acceptsItselfAsRecipient_neverFullyDistributes() public {
+    function test_splitter_zeroAddressRecipientCannotBrickERC20Distribution() public {
+        (address[] memory a, uint32[] memory p) = _two(address(0), r2, 600_000, 400_000);
+        vm.prank(owner);
+        vm.expectRevert(Splitter.InvalidRecipient.selector);
+        splitter.updateSplit(a, p);
+    }
+
+    function test_splitter_selfRecipientCannotRetainItsOwnShare() public {
         (address[] memory a, uint32[] memory p) = _two(address(splitter), r2, 600_000, 400_000);
         vm.prank(owner);
+        vm.expectRevert(Splitter.InvalidRecipient.selector);
         splitter.updateSplit(a, p);
-
-        _fund(1 ether);
-        splitter.distributeETH(a, p);
-
-        assertEq(r2.balance, 0.4 ether);
-        assertEq(address(splitter).balance, 0.6 ether, "60% never leaves the splitter");
-
-        // Ten more rounds still do not drain it.
-        for (uint256 i; i < 10; ++i) {
-            splitter.distributeETH(a, p);
-        }
-        assertGt(address(splitter).balance, 0, "still not empty after 11 distributions");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -268,11 +241,11 @@ contract AuditPoCSplitterTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
-        F-S4: permissionless distribution + "remainder to last recipient"
-              = full misallocation of dripped deposits. Splitter.sol:44,115
+        M-14 (FIXED): per-recipient fractional carry makes a dripped stream
+        converge to the same entitlements as a lump distribution.
     //////////////////////////////////////////////////////////////*/
 
-    function test_POC_splitter_permissionlessDripDistribution_stealsEntireStream() public {
+    function test_splitter_permissionlessDripDistribution_cannotStealStream() public {
         // r1 = 99.9999%, r2 = 0.0001% and last in the array.
         (address[] memory a, uint32[] memory p) = _two(r1, r2, 999_999, 1);
         vm.prank(owner);
@@ -285,15 +258,26 @@ contract AuditPoCSplitterTest is Test {
             splitter.distributeETH(a, p);
         }
 
-        assertEq(r1.balance, 0, "99.9999% recipient receives NOTHING");
-        assertEq(r2.balance, 200, "0.0001% recipient receives 100% of the stream");
+        assertEq(r1.balance, 199, "99.9999% entitlement paid as whole units mature");
+        assertEq(r2.balance, 0, "tiny recipient cannot capture rounding dust");
+        assertEq(address(splitter).balance, 1, "one indivisible unit retained");
 
-        // Control: one lump distribution of the same 200 wei is correct.
+        // Control: one lump distribution of the same 200 wei has the same result.
         Splitter s = Splitter(payable(LibClone.clone(address(impl))));
         s.initialize(owner, a, p);
         vm.deal(address(s), 200);
         s.distributeETH(a, p);
-        assertEq(r1.balance, 199, "lump sum pays r1 correctly");
+        assertEq(r1.balance, 398, "drip and lump each pay 199");
+        assertEq(r2.balance, 0);
+        assertEq(address(s).balance, 1);
+
+        // Once cumulative deposits reach one full PPM cycle, all fractional
+        // entitlements mature and the retained unit is released exactly.
+        _fund(999_800);
+        splitter.distributeETH(a, p);
+        assertEq(r1.balance, 1_000_198, "drip splitter has paid 999999 total");
+        assertEq(r2.balance, 1);
+        assertEq(address(splitter).balance, 0);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -485,13 +469,15 @@ contract AuditPoCSplitterTest is Test {
         _fund(amount);
         splitter.distributeETH(a, p);
 
-        assertEq(r1.balance + r2.balance, amount, "conservation");
-        assertEq(address(splitter).balance, 0, "nothing stuck");
+        assertEq(r1.balance, (uint256(amount) * p0) / PPM, "first entitlement");
+        assertEq(r2.balance, (uint256(amount) * (PPM - p0)) / PPM, "second entitlement");
+        assertEq(r1.balance + r2.balance + address(splitter).balance, amount, "conservation including dust");
+        assertLe(address(splitter).balance, 1, "at most one indivisible unit retained");
     }
 
-    /// Rounding is always down for the leading recipients, and the last
-    /// recipient absorbs the dust. Never more than the balance.
-    function test_splitter_roundingFavoursLastRecipient_isCorrect() public {
+    /// Every recipient is rounded down equally and the indivisible remainder
+    /// remains available for future fractional carry.
+    function test_splitter_roundingDoesNotFavourArrayPosition() public {
         (address[] memory a, uint32[] memory p) = _three(r1, r2, r3, 333_333, 333_333, 333_334);
         vm.prank(owner);
         splitter.updateSplit(a, p);
@@ -501,10 +487,11 @@ contract AuditPoCSplitterTest is Test {
         splitter.distributeETH(a, p);
 
         uint256 s1 = (amount * 333_333) / PPM;
+        uint256 s3 = (amount * 333_334) / PPM;
         assertEq(r1.balance, s1);
         assertEq(r2.balance, s1);
-        assertEq(r3.balance, amount - 2 * s1);
-        assertGt(r3.balance, (amount * 333_334) / PPM - 1);
+        assertEq(r3.balance, s3);
+        assertEq(address(splitter).balance, amount - 2 * s1 - s3);
     }
 
     function test_splitter_zeroBalanceIsNoop_isCorrect() public {

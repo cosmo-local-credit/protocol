@@ -198,8 +198,8 @@ Distributes an ETH or ERC20 balance among a fixed set of recipients by percentag
 **Key Functions:**
 - `initialize(owner, accounts, percentAllocations)`: set the recipients and their shares.
 - `updateSplit(accounts, percentAllocations)`: replace recipients and shares. Owner only.
-- `distributeETH(accounts, percentAllocations)`: distribute the contract's entire ETH balance. Permissionless.
-- `distributeERC20(token, accounts, percentAllocations)`: distribute the contract's entire balance of `token`. Permissionless.
+- `distributeETH(accounts, percentAllocations)`: distribute the contract's available ETH according to accumulated fractional entitlements. Permissionless.
+- `distributeERC20(token, accounts, percentAllocations)`: distribute the contract's available balance of `token` according to accumulated fractional entitlements. Permissionless.
 - `getHash()`: returns `keccak256(abi.encodePacked(accounts, percentAllocations))`, the commitment stored at init or last update.
 
 **How to use:**
@@ -209,12 +209,12 @@ Distributes an ETH or ERC20 balance among a fixed set of recipients by percentag
 **Rules:**
 - The passed arrays must hash to the stored split, or the call reverts with `InvalidHash`. Only the hash is stored on-chain, so callers must supply the full arrays each time.
 - Allocations are in PPM and must sum to exactly `1_000_000`. The sum is accumulated in `uint256` and each individual allocation must be at most `1_000_000`, so the total cannot wrap.
-- At least 2 recipients. No duplicate addresses. No zero allocations.
-- Any rounding remainder goes to the last recipient in the array.
+- At least 2 recipients. No duplicate, zero, or self-recipient addresses. No zero allocations.
+- Fractional remainders accrue per recipient and asset. Indivisible base units remain in the splitter until later deposits make a recipient's accumulated entitlement whole; repeatedly distributing a dripped stream therefore converges to the same allocation as distributing it in one lump, without favoring a fixed array position.
 - An empty balance is a no-op, not a revert.
 
 **Errors:**
-- `TooFewAccounts`, `AccountsAndAllocationsMismatch`, `InvalidAllocationsSum`, `DuplicateAccount`, `AllocationMustBePositive`, `InvalidHash`.
+- `TooFewAccounts`, `AccountsAndAllocationsMismatch`, `InvalidAllocationsSum`, `DuplicateAccount`, `AllocationMustBePositive`, `InvalidRecipient`, `InvalidHash`.
 
 ---
 
