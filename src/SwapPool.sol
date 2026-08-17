@@ -419,15 +419,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
 
         emit Swap(msg.sender, _inToken, _outToken, received, netValue, totalFee);
         emit SwapSettlement(
-            msg.sender,
-            _inToken,
-            _outToken,
-            received,
-            quotedValue,
-            nominalNetValue,
-            netValue,
-            totalFee,
-            protocolFee
+            msg.sender, _inToken, _outToken, received, quotedValue, nominalNetValue, netValue, totalFee, protocolFee
         );
     }
 

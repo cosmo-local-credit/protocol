@@ -77,8 +77,7 @@ contract OwnerInitializationTest is Test {
     }
 
     function test_protocolFeeController_rejectsZeroOwner() public {
-        ProtocolFeeController instance =
-            ProtocolFeeController(LibClone.clone(address(new ProtocolFeeController())));
+        ProtocolFeeController instance = ProtocolFeeController(LibClone.clone(address(new ProtocolFeeController())));
         vm.expectRevert(ZERO_OWNER);
         instance.initialize(address(0), 0, address(1));
     }
@@ -105,7 +104,17 @@ contract OwnerInitializationTest is Test {
         SwapPool instance = SwapPool(LibClone.clone(address(new SwapPool())));
         vm.expectRevert(ZERO_OWNER);
         instance.initialize(
-            "Pool", "POOL", 18, address(0), address(0), address(1), address(0), address(0), address(0), false, address(0)
+            "Pool",
+            "POOL",
+            18,
+            address(0),
+            address(0),
+            address(1),
+            address(0),
+            address(0),
+            address(0),
+            false,
+            address(0)
         );
     }
 
