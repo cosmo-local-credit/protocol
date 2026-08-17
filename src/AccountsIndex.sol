@@ -119,8 +119,13 @@ contract AccountsIndex is Ownable, Initializable {
     }
 
     function time(address _account) external view returns (uint256) {
-        if (entryIndex[_account] == 0) revert NotFound();
-        return entryIndex[_account] >> 64;
+        uint256 stored = entryIndex[_account];
+        if (stored == 0) revert NotFound();
+        return (stored & ~BLOCKED_FIELD) >> 64;
+    }
+
+    function contains(address _account) external view returns (bool) {
+        return entryIndex[_account] != 0;
     }
 
     function have(address _account) external view returns (bool) {

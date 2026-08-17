@@ -259,6 +259,18 @@ contract AccountsIndexTest is Test {
         assertTrue(accountTime >= beforeTime && accountTime <= afterTime);
     }
 
+    function test_time_isStableWhileDeactivated() public {
+        vm.warp(1_700_000_000);
+        vm.prank(writer);
+        index.add(account1);
+
+        uint256 addedAt = index.time(account1);
+        vm.prank(writer);
+        index.deactivate(account1);
+
+        assertEq(index.time(account1), addedAt, "activation state is not part of the timestamp");
+    }
+
     function test_have() public {
         assertFalse(index.have(account1));
 
@@ -270,6 +282,23 @@ contract AccountsIndexTest is Test {
         vm.prank(writer);
         index.deactivate(account1);
         assertFalse(index.have(account1), "inactive entries do not pass authorization");
+    }
+
+    function test_contains_distinguishesAbsentFromDeactivated() public {
+        assertFalse(index.contains(account1));
+
+        vm.startPrank(writer);
+        index.add(account1);
+        assertTrue(index.contains(account1));
+
+        index.deactivate(account1);
+        assertTrue(index.contains(account1), "deactivation retains membership");
+        assertFalse(index.have(account1), "deactivation revokes authorization");
+        assertFalse(index.isActive(account1));
+
+        index.remove(account1);
+        vm.stopPrank();
+        assertFalse(index.contains(account1), "removal clears membership");
     }
 
     function test_remove_deactivated_account() public {

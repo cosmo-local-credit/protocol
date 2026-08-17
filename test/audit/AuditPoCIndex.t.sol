@@ -245,10 +245,9 @@ contract AuditPoCIndexTest is Test {
      *  PART 2 - AccountsIndex bit-packing                           *
      * ============================================================ */
 
-    // FINDING: time() does not mask the packed word before shifting, so the
-    // BLOCKED_FIELD bit (bit 128) lands on bit 64 of the returned timestamp.
-    // A deactivated account reports a timestamp of `ts + 2**64`.
-    function test_AI_time_leaksBlockedFlagIntoTimestamp() public {
+    // REGRESSION: activation state is packed beside the addition timestamp,
+    // but must never change the timestamp returned to callers.
+    function test_AI_time_masksBlockedFlagFromTimestamp() public {
         vm.warp(1_700_000_000);
         vm.prank(writer);
         ai.add(acc1);
@@ -257,12 +256,8 @@ contract AuditPoCIndexTest is Test {
         vm.prank(writer);
         ai.deactivate(acc1);
 
-        // time() is now garbage: real timestamp + 2**64.
-        assertEq(ai.time(acc1), 1_700_000_000 + (uint256(1) << 64), "blocked bit leaks into time()");
-        assertTrue(ai.time(acc1) > block.timestamp, "reported timestamp is in the future");
+        assertEq(ai.time(acc1), 1_700_000_000, "blocked bit is excluded from time()");
 
-        // and it silently repairs itself on reactivation, so the corruption is
-        // state-dependent rather than permanent.
         vm.prank(writer);
         ai.activate(acc1);
         assertEq(ai.time(acc1), 1_700_000_000);
@@ -335,6 +330,21 @@ contract AuditPoCIndexTest is Test {
         (bool ok, bytes memory v) = address(ai).call(abi.encodeWithSignature("have(address)", acc1));
         assertTrue(ok);
         assertFalse(abi.decode(v, (bool)), "consumer sees the revocation");
+    }
+
+    // REGRESSION: membership remains observable without weakening have(), the
+    // authorization boundary used by registry consumers.
+    function test_AI_contains_distinguishesAbsentFromDeactivated() public {
+        assertFalse(ai.contains(acc1), "absent");
+
+        vm.startPrank(writer);
+        ai.add(acc1);
+        ai.deactivate(acc1);
+        vm.stopPrank();
+
+        assertTrue(ai.contains(acc1), "present but deactivated");
+        assertFalse(ai.have(acc1), "not authorized");
+        assertFalse(ai.isActive(acc1), "not active");
     }
 
     function test_AI_removeThenReAdd_isCorrect() public {
