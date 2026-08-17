@@ -554,7 +554,7 @@ Token registry indexed by unique ERC20 symbol. Used as a SwapPool `tokenRegistry
 
 **Key Functions:**
 - `initialize(owner, initialTokens[], initialSymbols[])`: pre-register tokens with explicit symbol keys. The two arrays must be the same length.
-- `register(token)` / `add(token)`: read `symbol()` from the token and register it. The symbol must be 32 bytes or fewer. Duplicate symbols are rejected. Owner or writer only. (`register` and `add` are equivalent.)
+- `register(token)` / `add(token)`: read `symbol()` from the token and register it. The token address must be nonzero and unique; the symbol must be nonempty, unique, and 32 bytes or fewer. Owner or writer only. (`register` and `add` are equivalent.)
 - `remove(token)`: deregister a token. Owner or writer only.
 - `have(token) -> bool`: whether the token is registered. Called by SwapPool.
 - `addressOf(symbolKey) -> address`: look up a token by its bytes32 symbol key.
@@ -598,15 +598,17 @@ Enumerable address registry with per-entry activation state and an addition time
 
 **Key Functions:**
 - `initialize(owner)`
-- `add(account)`: add an address. Owner or writer only. Reverts if already present.
-- `remove(account)`: remove an address. Owner or writer only. Uses swap-and-pop, so entry order is not preserved.
+- `add(account)`: add a nonzero address. Owner or writer only. Reverts if already present.
+- `remove(account)`: remove an address, including a deactivated address. Owner or writer only. Uses swap-and-pop, so entry order is not preserved.
 - `activate(account)` / `deactivate(account)`: toggle active state. Owner or writer only.
-- `have(account) -> bool`: whether the address is in the index.
+- `have(account) -> bool`: the authorization predicate used by registry consumers; true only when the address is present and active.
 - `isActive(account) -> bool`: whether the address is present and not deactivated.
 - `time(account) -> uint256`: the block timestamp when the account was added. Reverts with `NotFound` if absent.
 - `entry(idx) -> address` / `entryCount()`: enumerate entries (0-based).
 - `addWriter(address)` / `deleteWriter(address)`: owner only.
 - `isWriter(address)`: returns true for writers and for the owner.
+
+**Note:** Deactivation retains the entry for enumeration and later reactivation, but immediately makes both `have` and `isActive` return false.
 
 **Events:**
 - `AddressAdded(account)` / `AddressRemoved(account)`

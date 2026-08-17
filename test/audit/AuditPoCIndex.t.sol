@@ -236,7 +236,7 @@ contract AuditPoCIndexTest is Test {
         vm.stopPrank();
 
         assertEq(ai.entry(0), acc2);
-        assertTrue(ai.have(acc2));
+        assertFalse(ai.have(acc2), "blocked account is no longer authorized");
         assertFalse(ai.isActive(acc2), "blocked flag survived relocation");
         assertEq(_rawEntryIndex(acc2) & type(uint64).max, 1);
     }
@@ -279,7 +279,7 @@ contract AuditPoCIndexTest is Test {
         ai.add(acc1);
 
         assertEq(_rawEntryIndex(acc1) & BLOCKED_FIELD, BLOCKED_FIELD, "add() set the blocked bit");
-        assertTrue(ai.have(acc1));
+        assertFalse(ai.have(acc1));
         assertFalse(ai.isActive(acc1), "entry is born deactivated");
 
         // and deactivate() refuses to run because the entry already looks blocked.
@@ -306,38 +306,35 @@ contract AuditPoCIndexTest is Test {
         ai.remove(acc1);
     }
 
-    // FINDING: address(0) can be added. entryList[0] is a reserved sentinel, so
-    // after add(address(0)) the same value appears twice in the list, and
-    // `have(address(0))`/`isActive(address(0))` return true - i.e. the null
-    // address is whitelisted for every downstream consumer.
-    function test_AI_add_zeroAddress_isWhitelistedAndAliasesTheSentinel() public {
+    // REGRESSION: the null address must never alias the reserved sentinel or
+    // become authorized by downstream registry consumers.
+    function test_AI_add_zeroAddress_isRejected() public {
         assertFalse(ai.have(address(0)));
 
         vm.prank(writer);
+        vm.expectRevert(AccountsIndex.InvalidAddress.selector);
         ai.add(address(0));
 
-        assertTrue(ai.have(address(0)), "null address whitelisted");
-        assertTrue(ai.isActive(address(0)));
-        assertEq(ai.entryCount(), 1);
-        assertEq(ai.entry(0), address(0), "enumeration yields the null address");
+        assertFalse(ai.have(address(0)));
+        assertFalse(ai.isActive(address(0)));
+        assertEq(ai.entryCount(), 0);
     }
 
-    // FINDING (semantics): the SwapPool / EthFaucet security boundary calls
-    // `have(address)`, never `isActive(address)`. Deactivating an account
-    // therefore does not revoke it from the whitelist.
-    function test_AI_deactivate_doesNotRevokeTheHaveWhitelist() public {
+    // REGRESSION: SwapPool and EthFaucet use have() as their authorization
+    // boundary, so deactivation must immediately revoke that predicate.
+    function test_AI_deactivate_revokesTheHaveWhitelist() public {
         vm.startPrank(writer);
         ai.add(acc1);
         ai.deactivate(acc1);
         vm.stopPrank();
 
         assertFalse(ai.isActive(acc1), "marked inactive");
-        assertTrue(ai.have(acc1), "but still passes the have() whitelist");
+        assertFalse(ai.have(acc1), "blocked account is no longer allowed");
 
         // exactly the call SwapPool.mustAllowedToken / EthFaucet._checkRegistry make
         (bool ok, bytes memory v) = address(ai).call(abi.encodeWithSignature("have(address)", acc1));
         assertTrue(ok);
-        assertTrue(abi.decode(v, (bool)), "consumer sees a blocked account as allowed");
+        assertFalse(abi.decode(v, (bool)), "consumer sees the revocation");
     }
 
     function test_AI_removeThenReAdd_isCorrect() public {
@@ -431,95 +428,48 @@ contract AuditPoCIndexTest is Test {
      *  PART 4 - TokenUniqueSymbolIndex                              *
      * ============================================================ */
 
-    // FINDING: a token whose `symbol()` returns "" gets symbolKey == bytes32(0),
-    // which is also the "absent" marker for `tokenIndex`. _register() pushes the
-    // token into `tokens` / `identifierList` and bumps entryCount(), but stores
-    // tokenIndex[token] = 0. Result: an entry that is enumerable and counted,
-    // is NOT covered by have(), and can never be removed.
-    function test_TI_emptySymbolToken_createsUnremovableGhostEntry() public {
+    // REGRESSION: bytes32(0) is the absence sentinel and must not be admitted as
+    // a token symbol, otherwise the entry cannot be tracked or removed safely.
+    function test_TI_emptySymbolToken_isRejected() public {
         IxEmptySymbolToken ghost = new IxEmptySymbolToken();
 
         vm.prank(writer);
+        vm.expectRevert(TokenUniqueSymbolIndex.EmptySymbol.selector);
         ti.add(address(ghost));
 
-        // present in enumeration
-        assertEq(ti.entryCount(), 1);
-        assertEq(ti.entry(0), address(ghost));
-        assertEq(ti.identifierCount(), 1);
-        assertEq(ti.identifier(0), bytes32(0));
-        // and reachable through the symbol lookup
-        assertEq(ti.addressOf(bytes32(0)), address(ghost));
-
-        // but invisible to the whitelist
-        assertFalse(ti.have(address(ghost)), "have() denies an indexed token");
+        assertEq(ti.entryCount(), 0);
+        assertEq(ti.identifierCount(), 0);
+        assertEq(ti.addressOf(bytes32(0)), address(0));
+        assertFalse(ti.have(address(ghost)));
         assertEq(ti.tokenIndex(address(ghost)), bytes32(0));
-
-        // and unremovable: remove() gates on tokenIndex != 0
-        vm.prank(writer);
-        vm.expectRevert(NotFound.selector);
-        ti.remove(address(ghost));
-        vm.prank(owner);
-        vm.expectRevert(NotFound.selector);
-        ti.remove(address(ghost));
-
-        // entryCount() is permanently inflated relative to have()
-        vm.prank(writer);
-        ti.add(address(tokenA));
-        assertEq(ti.entryCount(), 2);
-        assertTrue(ti.have(address(tokenA)));
-        assertFalse(ti.have(ti.entry(0)));
-
-        // the bytes32(0) symbol slot is now squatted forever
-        IxEmptySymbolToken ghost2 = new IxEmptySymbolToken();
-        vm.prank(writer);
-        vm.expectRevert(SymbolAlreadyExists.selector);
-        ti.add(address(ghost2));
     }
 
-    // FINDING: _register() only rejects duplicate SYMBOLS, never a duplicate
-    // TOKEN. A token whose symbol changes can be registered twice, occupying two
-    // slots, while tokenIndex[] can only remember one symbol. remove() then
-    // deregisters one slot and clears tokenIndex, so have() says "no" while the
-    // token is still enumerable and still resolvable via addressOf(). The
-    // orphaned symbol key can never be freed, permanently locking the token out
-    // of the index under its real symbol.
-    function test_TI_symbolChangingToken_doubleRegisters_thenCorruptsHaveVersusEnumeration() public {
+    // REGRESSION: a token address is unique even if its mutable metadata changes.
+    // A second registration must not create an orphaned symbol or duplicate slot.
+    function test_TI_symbolChangingToken_cannotRegisterTwice() public {
         IxMutableSymbolToken t = new IxMutableSymbolToken("AAA");
 
         vm.prank(writer);
         ti.register(address(t)); // slot 1, symbol "AAA"
         t.setSymbol("BBB");
         vm.prank(writer);
-        ti.register(address(t)); // slot 2, symbol "BBB" -- same address, no duplicate check
+        vm.expectRevert(TokenUniqueSymbolIndex.TokenAlreadyExists.selector);
+        ti.register(address(t));
 
-        assertEq(ti.entryCount(), 2, "one token occupies two slots");
+        assertEq(ti.entryCount(), 1);
         assertEq(ti.entry(0), address(t));
-        assertEq(ti.entry(1), address(t));
-        assertEq(ti.tokenIndex(address(t)), bytes32(bytes("BBB")), "only the last symbol is remembered");
+        assertEq(ti.tokenIndex(address(t)), bytes32(bytes("AAA")));
+        assertEq(ti.addressOf(bytes32(bytes("AAA"))), address(t));
+        assertEq(ti.addressOf(bytes32(bytes("BBB"))), address(0));
 
         vm.prank(writer);
         ti.remove(address(t));
 
-        // whitelist and enumeration now disagree
-        assertFalse(ti.have(address(t)), "have() says the token is not registered");
-        assertEq(ti.entryCount(), 1);
-        assertEq(ti.entry(0), address(t), "but it is still enumerable");
-        assertEq(ti.addressOf(bytes32(bytes("AAA"))), address(t), "and still resolvable by symbol");
-        assertEq(ti.identifier(0), bytes32(bytes("AAA")));
-
-        // permanent lockout: the orphaned "AAA" key cannot be reused, so the
-        // token can never be re-registered under its original symbol.
-        t.setSymbol("AAA");
-        vm.prank(writer);
-        vm.expectRevert(SymbolAlreadyExists.selector);
-        ti.register(address(t));
         assertFalse(ti.have(address(t)));
-
-        // the tokens[0] sentinel is NOT damaged, so addressOf() of an unknown
-        // key still resolves to address(0) (see discarded candidate: remove()'s
-        // unconditional `registry[identifierList[i]] = i` with i == 0).
+        assertEq(ti.entryCount(), 0);
+        assertEq(ti.identifierCount(), 0);
+        assertEq(ti.addressOf(bytes32(bytes("AAA"))), address(0));
         assertEq(_tiSentinel(ti), address(0), "sentinel intact");
-        assertEq(ti.addressOf(keccak256("never-registered")), address(0));
     }
 
     // Randomised hunt for the `i == 0` branch of remove(), which would write
@@ -553,9 +503,9 @@ contract AuditPoCIndexTest is Test {
         vm.stopPrank();
     }
 
-    // Same root cause reached without a malicious token: initialize() accepts a
-    // duplicated token address with two different symbol keys.
-    function test_TI_initializeWithDuplicateToken_corruptsHaveAfterRemove() public {
+    // REGRESSION: initialization enforces the same token-address uniqueness as
+    // runtime registration.
+    function test_TI_initializeWithDuplicateToken_isRejected() public {
         TokenUniqueSymbolIndex dup = TokenUniqueSymbolIndex(payable(LibClone.clone(address(tiImpl))));
         address[] memory toks = new address[](2);
         bytes32[] memory syms = new bytes32[](2);
@@ -563,16 +513,8 @@ contract AuditPoCIndexTest is Test {
         toks[1] = address(tokenA);
         syms[0] = bytes32(bytes("TKA"));
         syms[1] = bytes32(bytes("TKA2"));
+        vm.expectRevert(TokenUniqueSymbolIndex.TokenAlreadyExists.selector);
         dup.initialize(owner, toks, syms);
-
-        assertEq(dup.entryCount(), 2);
-
-        vm.prank(owner);
-        dup.remove(address(tokenA));
-
-        assertFalse(dup.have(address(tokenA)));
-        assertEq(dup.entryCount(), 1);
-        assertEq(dup.entry(0), address(tokenA), "ghost slot left behind");
     }
 
     // FINDING (compatibility): `abi.decode(r, (bytes))` assumes a dynamically
@@ -730,9 +672,8 @@ contract AuditPoCIndexTest is Test {
         assertEq(ti.identifierList(1), bytes32(bytes("TKA")));
     }
 
-    // FINDING (low): SPEC says initialize()'s two arrays "must be the same
-    // length", but nothing enforces it. Extra symbols are silently dropped.
-    function test_TI_initializeArrayLengthMismatch_isUnchecked() public {
+    // REGRESSION: both mismatch directions fail with the same explicit error.
+    function test_TI_initializeArrayLengthMismatch_isRejected() public {
         TokenUniqueSymbolIndex a = TokenUniqueSymbolIndex(payable(LibClone.clone(address(tiImpl))));
         address[] memory toks = new address[](1);
         bytes32[] memory syms = new bytes32[](3);
@@ -740,18 +681,16 @@ contract AuditPoCIndexTest is Test {
         syms[0] = bytes32(bytes("TKA"));
         syms[1] = bytes32(bytes("TKB"));
         syms[2] = bytes32(bytes("TKC"));
-        a.initialize(owner, toks, syms); // succeeds, TKB/TKC silently dropped
-        assertEq(a.entryCount(), 1);
-        assertEq(a.identifierCount(), 1);
+        vm.expectRevert(TokenUniqueSymbolIndex.ArrayLengthMismatch.selector);
+        a.initialize(owner, toks, syms);
 
-        // the reverse mismatch reverts with a bare array-bounds panic (0x32)
         TokenUniqueSymbolIndex b = TokenUniqueSymbolIndex(payable(LibClone.clone(address(tiImpl))));
         address[] memory toks2 = new address[](2);
         bytes32[] memory syms2 = new bytes32[](1);
         toks2[0] = address(tokenA);
         toks2[1] = address(tokenB);
         syms2[0] = bytes32(bytes("TKA"));
-        vm.expectRevert(stdError.indexOOBError);
+        vm.expectRevert(TokenUniqueSymbolIndex.ArrayLengthMismatch.selector);
         b.initialize(owner, toks2, syms2);
     }
 

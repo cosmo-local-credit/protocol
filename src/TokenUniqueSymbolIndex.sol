@@ -11,6 +11,10 @@ contract TokenUniqueSymbolIndex is Ownable, Initializable {
     error TokenSymbolTooLong();
     error NotFound();
     error SymbolAlreadyExists();
+    error TokenAlreadyExists();
+    error EmptySymbol();
+    error InvalidToken();
+    error ArrayLengthMismatch();
 
     mapping(address => bool) public isWriter;
     mapping(bytes32 => uint256) private registry;
@@ -32,6 +36,7 @@ contract TokenUniqueSymbolIndex is Ownable, Initializable {
         external
         initializer
     {
+        if (initialTokens.length != initialSymbols.length) revert ArrayLengthMismatch();
         _initializeOwner(owner_);
 
         tokens.push(address(0));
@@ -66,6 +71,9 @@ contract TokenUniqueSymbolIndex is Ownable, Initializable {
     }
 
     function _register(address _token, bytes32 _symbolKey) internal {
+        if (_token == address(0)) revert InvalidToken();
+        if (_symbolKey == bytes32(0)) revert EmptySymbol();
+        if (tokenIndex[_token] != bytes32(0)) revert TokenAlreadyExists();
         uint256 idx = registry[_symbolKey];
         if (idx != 0) revert SymbolAlreadyExists();
 
