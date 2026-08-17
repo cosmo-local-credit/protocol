@@ -141,7 +141,7 @@ func parseFlags(args []string) (config, error) {
 		FactoryAddress:            envOr("FACTORY_ADDRESS", ""),
 		FactorySaltSuffix:         envOr("FACTORY_SALT_SUFFIX", ""),
 		BaseCurrency:              envOr("BASE_CURRENCY", ""),
-		PoolQuoter:                envOr("POOL_QUOTER", "relative"),
+		PoolQuoter:                envOr("POOL_QUOTER", ""),
 		PoolTokenRegistry:         envOr("POOL_TOKEN_REGISTRY", ""),
 		PoolFeeAddress:            envOr("POOL_FEE_ADDRESS", ""),
 		PoolName:                  envOr("POOL_NAME", "Sarafu Pool"),
@@ -182,7 +182,7 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.FactorySaltSuffix, "factory-salt-suffix", cfg.FactorySaltSuffix, "optional suffix appended to factory Name() before salt derivation")
 	fs.StringVar(&cfg.ImplAddress, "impl-address", cfg.ImplAddress, "existing implementation address (deploy-proxy only)")
 	fs.StringVar(&cfg.BaseCurrency, "base-currency", cfg.BaseCurrency, "base currency for OracleQuoter")
-	fs.StringVar(&cfg.PoolQuoter, "pool-quoter", cfg.PoolQuoter, "relative|oracle")
+	fs.StringVar(&cfg.PoolQuoter, "pool-quoter", cfg.PoolQuoter, "deployed quoter proxy address")
 	fs.StringVar(&cfg.PoolTokenRegistry, "pool-token-registry", cfg.PoolTokenRegistry, "override token registry")
 	fs.StringVar(&cfg.PoolFeeAddress, "pool-fee-address", cfg.PoolFeeAddress, "pool fee address")
 	fs.StringVar(&cfg.PoolName, "pool-name", cfg.PoolName, "pool name")
@@ -235,9 +235,19 @@ func isProxiedContract(name string) bool {
 func resolveAdmin(cfg config, owner common.Address) (common.Address, error) {
 	if !isProxiedContract(cfg.Contract) {
 		if cfg.Admin == "" {
+			if owner == (common.Address{}) {
+				return common.Address{}, errors.New("deployment admin must not be the zero address")
+			}
 			return owner, nil
 		}
-		return parseAddress(cfg.Admin)
+		admin, err := parseAddress(cfg.Admin)
+		if err != nil {
+			return common.Address{}, err
+		}
+		if admin == (common.Address{}) {
+			return common.Address{}, errors.New("deployment admin must not be the zero address")
+		}
+		return admin, nil
 	}
 	if cfg.Admin == "" {
 		return common.Address{}, errors.New("--admin is required for proxy deploys; seal is only meaningful when the proxy admin is distinct from the owner")
@@ -245,6 +255,9 @@ func resolveAdmin(cfg config, owner common.Address) (common.Address, error) {
 	admin, err := parseAddress(cfg.Admin)
 	if err != nil {
 		return common.Address{}, err
+	}
+	if admin == (common.Address{}) {
+		return common.Address{}, errors.New("--admin must not be the zero address")
 	}
 	if admin == owner {
 		return common.Address{}, errors.New("--admin must differ from --owner; the key that seals must not be able to upgrade the implementation")
@@ -274,6 +287,9 @@ func run(cfg config) error {
 		if err != nil {
 			return err
 		}
+	}
+	if owner == (common.Address{}) {
+		return errors.New("--owner must not be the zero address")
 	}
 
 	admin, err := resolveAdmin(cfg, owner)
@@ -445,10 +461,6 @@ func runOne(ctx context.Context, d *publish.Deployer, cfg config, owner, admin, 
 			return tokenuniquesymbolindex.EncodeInit(tokenuniquesymbolindex.InitArgs{Owner: owner, InitialTokens: indexTokens, InitialSymbols: initialSymbols})
 		})
 	case "swappool":
-		factoryAddr, err := ensureFactory(ctx, d, cfg)
-		if err != nil {
-			return err
-		}
 		feePolicy, err := parseAddress(cfg.PoolFeePolicy)
 		if err != nil {
 			return fmt.Errorf("pool-fee-policy is required for publish-one swappool: %w", err)
@@ -462,23 +474,9 @@ func runOne(ctx context.Context, d *publish.Deployer, cfg config, owner, admin, 
 			return fmt.Errorf("pool-protocol-fee-controller is required for publish-one swappool: %w", err)
 		}
 
-		quoterAddress := common.Address{}
-		if strings.EqualFold(cfg.PoolQuoter, "oracle") {
-			quoterAddress, err = parseAddress(cfg.BaseCurrency)
-			if err != nil {
-				return fmt.Errorf("for publish-one swappool, provide quoter proxy via pool-quoter='oracle' and set base-currency to quoter address is not supported")
-			}
-			_ = quoterAddress
-		}
-		if cfg.PoolQuoter != "" && cfg.PoolQuoter != "relative" && cfg.PoolQuoter != "oracle" {
-			return errors.New("pool-quoter must be relative|oracle")
-		}
-		if !common.IsHexAddress(cfg.PoolQuoter) {
-			return errors.New("for publish-one swappool, pass quoter proxy address in --pool-quoter")
-		}
-		quoterAddress, err = parseAddress(cfg.PoolQuoter)
+		quoterAddress, err := parseAddress(cfg.PoolQuoter)
 		if err != nil {
-			return err
+			return fmt.Errorf("pool-quoter must be a deployed quoter proxy address for publish-one swappool: %w", err)
 		}
 
 		tokenRegistry := common.Address{}
@@ -488,22 +486,33 @@ func runOne(ctx context.Context, d *publish.Deployer, cfg config, owner, admin, 
 				return err
 			}
 		}
+		if err := validatePoolDependencies(ctx, d, cfg); err != nil {
+			return err
+		}
 
-		implAddr, proxyAddr, err := deployProxied(ctx, d, factoryAddr, admin, "SwapPool", swappool.Bytecode(), swappool.ImplGasLimit, func() ([]byte, error) {
-			return swappool.EncodeInit(swappool.InitArgs{
-				Name:                  cfg.PoolName,
-				Symbol:                cfg.PoolSymbol,
-				Decimals:              uint8(cfg.PoolDecimals),
-				Owner:                 owner,
-				FeePolicy:             feePolicy,
-				FeeAddress:            feeAddress,
-				TokenRegistry:         tokenRegistry,
-				TokenLimiter:          tokenLimiter,
-				Quoter:                quoterAddress,
-				FeesDecoupled:         cfg.PoolFeesDecoupled,
-				ProtocolFeeController: pfc,
-			})
+		initData, err := swappool.EncodeInit(swappool.InitArgs{
+			Name:                  cfg.PoolName,
+			Symbol:                cfg.PoolSymbol,
+			Decimals:              uint8(cfg.PoolDecimals),
+			Owner:                 owner,
+			FeePolicy:             feePolicy,
+			FeeAddress:            feeAddress,
+			TokenRegistry:         tokenRegistry,
+			TokenLimiter:          tokenLimiter,
+			Quoter:                quoterAddress,
+			FeesDecoupled:         cfg.PoolFeesDecoupled,
+			ProtocolFeeController: pfc,
 		})
+		if err != nil {
+			return fmt.Errorf("encode SwapPool init: %w", err)
+		}
+		factoryAddr, err := ensureFactory(ctx, d, cfg)
+		if err != nil {
+			return err
+		}
+		implAddr, proxyAddr, err := deployProxied(
+			ctx, d, factoryAddr, admin, "SwapPool", swappool.Bytecode(), swappool.ImplGasLimit, initData,
+		)
 		if err != nil {
 			return err
 		}
@@ -524,11 +533,15 @@ func runOne(ctx context.Context, d *publish.Deployer, cfg config, owner, admin, 
 }
 
 func runOneProxied(ctx context.Context, d *publish.Deployer, cfg config, out report, key, name string, bytecode []byte, gas uint64, admin common.Address, initFn func() ([]byte, error)) error {
+	initData, err := initFn()
+	if err != nil {
+		return fmt.Errorf("encode %s init: %w", name, err)
+	}
 	factoryAddr, err := ensureFactory(ctx, d, cfg)
 	if err != nil {
 		return err
 	}
-	implAddr, proxyAddr, err := deployProxied(ctx, d, factoryAddr, admin, name, bytecode, gas, initFn)
+	implAddr, proxyAddr, err := deployProxied(ctx, d, factoryAddr, admin, name, bytecode, gas, initData)
 	if err != nil {
 		return err
 	}
@@ -549,12 +562,8 @@ func ensureFactory(ctx context.Context, d *publish.Deployer, cfg config) (common
 		if err != nil {
 			return common.Address{}, err
 		}
-		code, err := d.CodeAt(ctx, addr)
-		if err != nil {
+		if err := requireCode(ctx, d, "factory", addr); err != nil {
 			return common.Address{}, err
-		}
-		if len(code) == 0 {
-			return common.Address{}, fmt.Errorf("factory address %s has no code", addr.Hex())
 		}
 		return addr, nil
 	}
@@ -584,7 +593,57 @@ func ensureFactory(ctx context.Context, d *publish.Deployer, cfg config) (common
 	if receipt.Status != 1 {
 		return common.Address{}, fmt.Errorf("deterministic factory deployment failed: %s", receipt.TxHash.Hex())
 	}
+	if err := requireCode(ctx, d, "factory", result.ContractAddress); err != nil {
+		return common.Address{}, err
+	}
 	return result.ContractAddress, nil
+}
+
+type codeReader interface {
+	CodeAt(context.Context, common.Address) ([]byte, error)
+}
+
+func requireCode(ctx context.Context, reader codeReader, label string, address common.Address) error {
+	if address == (common.Address{}) {
+		return fmt.Errorf("%s address must not be zero", label)
+	}
+	code, err := reader.CodeAt(ctx, address)
+	if err != nil {
+		return fmt.Errorf("validate %s address: %w", label, err)
+	}
+	if len(code) == 0 {
+		return fmt.Errorf("%s address %s has no code", label, address.Hex())
+	}
+	return nil
+}
+
+func validatePoolDependencies(ctx context.Context, reader codeReader, cfg config) error {
+	dependencies := []struct {
+		label string
+		value string
+	}{
+		{"pool-fee-policy", cfg.PoolFeePolicy},
+		{"pool-token-limiter", cfg.PoolTokenLimiter},
+		{"pool-protocol-fee-controller", cfg.PoolProtocolFeeController},
+		{"pool-quoter", cfg.PoolQuoter},
+	}
+	if strings.TrimSpace(cfg.PoolTokenRegistry) != "" {
+		dependencies = append(dependencies, struct {
+			label string
+			value string
+		}{"pool-token-registry", cfg.PoolTokenRegistry})
+	}
+
+	for _, dependency := range dependencies {
+		address, err := parseAddress(dependency.value)
+		if err != nil {
+			return fmt.Errorf("--%s must be a deployed contract address: %w", dependency.label, err)
+		}
+		if err := requireCode(ctx, reader, dependency.label, address); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func deployPlain(ctx context.Context, d *publish.Deployer, name string, bytecode []byte, gasLimit uint64) (common.Address, error) {
@@ -599,18 +658,16 @@ func deployPlain(ctx context.Context, d *publish.Deployer, name string, bytecode
 	if receipt.Status != 1 {
 		return common.Address{}, fmt.Errorf("%s implementation deployment failed: %s", name, receipt.TxHash.Hex())
 	}
+	if err := requireCode(ctx, d, name+" implementation", result.ContractAddress); err != nil {
+		return common.Address{}, err
+	}
 	return result.ContractAddress, nil
 }
 
-func deployProxied(ctx context.Context, d *publish.Deployer, factory, admin common.Address, name string, bytecode []byte, implGasLimit uint64, initFn func() ([]byte, error)) (common.Address, common.Address, error) {
+func deployProxied(ctx context.Context, d *publish.Deployer, factory, admin common.Address, name string, bytecode []byte, implGasLimit uint64, initData []byte) (common.Address, common.Address, error) {
 	implAddr, err := deployPlain(ctx, d, name, bytecode, implGasLimit)
 	if err != nil {
 		return common.Address{}, common.Address{}, err
-	}
-
-	initData, err := initFn()
-	if err != nil {
-		return common.Address{}, common.Address{}, fmt.Errorf("encode %s init: %w", name, err)
 	}
 
 	salt := publish.GenerateSalt(d.Address(), name)
@@ -628,6 +685,9 @@ func deployProxied(ctx context.Context, d *publish.Deployer, factory, admin comm
 
 	proxyAddr, err := publish.ProxyAddressFromReceipt(receipt)
 	if err != nil {
+		return common.Address{}, common.Address{}, err
+	}
+	if err := requireCode(ctx, d, name+" proxy", proxyAddr); err != nil {
 		return common.Address{}, common.Address{}, err
 	}
 
@@ -696,6 +756,9 @@ func runDeployImpl(cfg config) error {
 			return err
 		}
 	}
+	if admin == (common.Address{}) {
+		return errors.New("deployment admin must not be the zero address")
+	}
 
 	d, err := publish.NewDeployer(cfg.RPCURL, cfg.ChainID, key, big.NewInt(cfg.GasFeeCap), big.NewInt(cfg.GasTipCap))
 	if err != nil {
@@ -749,6 +812,9 @@ func runDeployProxy(cfg config) error {
 			return err
 		}
 	}
+	if owner == (common.Address{}) {
+		return errors.New("--owner must not be the zero address")
+	}
 
 	admin, err := resolveAdmin(cfg, owner)
 	if err != nil {
@@ -773,6 +839,17 @@ func runDeployProxy(cfg config) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
 	defer cancel()
+	if err := requireCode(ctx, d, "factory", factoryAddr); err != nil {
+		return err
+	}
+	if err := requireCode(ctx, d, "implementation", implAddr); err != nil {
+		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.Contract), "swappool") {
+		if err := validatePoolDependencies(ctx, d, cfg); err != nil {
+			return err
+		}
+	}
 
 	feeAddress := owner
 	if cfg.PoolFeeAddress != "" {
@@ -825,6 +902,9 @@ func runDeployProxy(cfg config) error {
 	}
 	proxyAddr, err := publish.ProxyAddressFromReceipt(receipt)
 	if err != nil {
+		return err
+	}
+	if err := requireCode(ctx, d, "proxy", proxyAddr); err != nil {
 		return err
 	}
 

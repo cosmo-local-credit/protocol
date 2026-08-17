@@ -305,7 +305,7 @@ Allocations are in PPM (parts per million) and must sum to 1,000,000.
 
 ### SwapPool
 
-Requires `feepolicy`, `limiter`, and `pfc` proxy addresses. `--pool-quoter` must be the quoter proxy address (either a RelativeQuoter or OracleQuoter proxy).
+Requires deployed `feepolicy`, `limiter`, `pfc`, and quoter proxy addresses. `--pool-quoter` has no default and must be the quoter proxy address (either a RelativeQuoter or OracleQuoter proxy). The CLI checks that all required dependency addresses contain code before sending a deployment transaction.
 
 ```bash
 ./ge-publish deploy-proxy --contract swappool $BASE \
