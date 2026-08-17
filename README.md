@@ -14,6 +14,10 @@ Includes smart contracts around:
 * [Foundry toolchain](https://getfoundry.sh/introduction/overview)
 * [Go toolchain](https://go.dev)
 
+### Security audit
+
+* [Sarafu Network Protocol Smart Contract Security Assessment](audits/Sarafu-Protocol-Security-Audit.pdf) — internal engineering review of all protocol contracts at commit `f0944d9`; this is not an independent third-party certification.
+
 ### Publish library
 
 Go library for programmatic deployment of protocol contracts using the ERC1967 proxy pattern where applicable. The current package covers implementation deployment, proxy creation, receipt polling, deployed-code checks, and deterministic deployment via the Arachnid CREATE2 factory. Upgrade and admin workflows are documented as direct factory calls.
