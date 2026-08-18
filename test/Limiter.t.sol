@@ -124,7 +124,5 @@ contract LimiterTest is Test {
     }
 }
 
-contract MockContract {
-    // Empty contract with code
-
-    }
+// Empty contract with code
+contract MockContract {}
