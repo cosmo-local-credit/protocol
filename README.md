@@ -14,10 +14,6 @@ Includes smart contracts around:
 * [Foundry toolchain](https://getfoundry.sh/introduction/overview)
 * [Go toolchain](https://go.dev)
 
-### Security audit
-
-* [Sarafu Network Protocol Smart Contract Security Assessment](audits/Sarafu-Protocol-Security-Audit.pdf) — internal engineering review of all protocol contracts at commit `f0944d9`; this is not an independent third-party certification.
-
 ### Publish library
 
 Go library for programmatic deployment of protocol contracts using the ERC1967 proxy pattern where applicable. The current package covers implementation deployment, proxy creation, receipt polling, deployed-code checks, and deterministic deployment via the Arachnid CREATE2 factory. Upgrade and admin workflows are documented as direct factory calls.
@@ -28,29 +24,37 @@ Go library for programmatic deployment of protocol contracts using the ERC1967 p
 
 ### Deployments
 
-#### Celo Mainnet (chain ID 42220)
+#### Gnosis Mainnet (chain ID 100) - v1.0.0
 
-Compiler: Solidity 0.8.34, EVM fork: osaka, optimizer: 200 runs. Deployer: `0x469723CbE3C164F818bD49E3dFa9823616282FDD`.
+Compiler: Solidity 0.8.36, EVM fork: osaka, optimizer: 200 runs (protocol). Calibur: 0.8.36 / osaka / 1000 runs. Deployer: `0x33a573149db22e759fb9a38bcc461c12855c2645`.
 
-| Contract | Implementation Address (v0.5.0) |
+| Contract | Implementation Address (v1.0.0) |
 |---|---|
-| ERC1967Factory | [0x3e302C5965954D84Ab3dac664C6152b54D7daa00](https://celoscan.io/address/0x3e302C5965954D84Ab3dac664C6152b54D7daa00) |
-| AccountsIndex | [0x35113F67fd55450E625f6979dF21aDCB73E6DBb7](https://celoscan.io/address/0x35113F67fd55450E625f6979dF21aDCB73E6DBb7) |
-| CAT | [0xE7ecf774a875A315b21104e1Dc667C57D314EE1C](https://celoscan.io/address/0xE7ecf774a875A315b21104e1Dc667C57D314EE1C) |
-| ContractRegistry | [0x09537711A99d0611ac129e9F5c18C19DFDe4a7cD](https://celoscan.io/address/0x09537711A99d0611ac129e9F5c18C19DFDe4a7cD) |
-| EthFaucet | [0x4Ed5662BEE1B8cDEbF0Eb0A628271a84188153d0](https://celoscan.io/address/0x4Ed5662BEE1B8cDEbF0Eb0A628271a84188153d0) |
-| FeePolicy | [0xa4dF0D9713D42dbEBE139B3F020E2f14AF8fb37e](https://celoscan.io/address/0xa4dF0D9713D42dbEBE139B3F020E2f14AF8fb37e) |
-| GiftableToken | [0x1F74298ff3CCF718c50c557d2b9a54040F295012](https://celoscan.io/address/0x1F74298ff3CCF718c50c557d2b9a54040F295012) |
-| Limiter | [0x392d269E5AB4d6024AccD3b2F7dE0b79E0f7602f](https://celoscan.io/address/0x392d269E5AB4d6024AccD3b2F7dE0b79E0f7602f) |
-| OracleQuoter | [0x0F753b191d01538d24B89968A90b5A1aE3753E0d](https://celoscan.io/address/0x0F753b191d01538d24B89968A90b5A1aE3753E0d) |
-| PeriodSimple | [0xe64aA3BAef319CcF3D8Cd6d3295e8C41561835ff](https://celoscan.io/address/0xe64aA3BAef319CcF3D8Cd6d3295e8C41561835ff) |
-| ProtocolFeeController | [0xFD68aFA98be59702F6450D4d073fa05d32D3014a](https://celoscan.io/address/0xFD68aFA98be59702F6450D4d073fa05d32D3014a) |
-| RelativeQuoter | [0x9107e667aB5F1F05dB5285B2E93c50C3Af47B710](https://celoscan.io/address/0x9107e667aB5F1F05dB5285B2E93c50C3Af47B710) |
-| Splitter | [0x396F8e22feF0e2f4F7BCA10E39B22A3B20094891](https://celoscan.io/address/0x396F8e22feF0e2f4F7BCA10E39B22A3B20094891) |
-| SwapPool | [0xCF879ADd8c34083b48c8a638D3C166eFcF35D454](https://celoscan.io/address/0xCF879ADd8c34083b48c8a638D3C166eFcF35D454) |
-| TokenUniqueSymbolIndex | [0xA2d04499e68B0B295bf0331D516DcA8A30Fc51c6](https://celoscan.io/address/0xA2d04499e68B0B295bf0331D516DcA8A30Fc51c6) |
-| DecimalQuoter | [0x7ff73c1833FdA7C0f458c079496015F9D22f64f4](https://celoscan.io/address/0x7ff73c1833FdA7C0f458c079496015F9D22f64f4) |
-| SwapRouter | [0x204653A89FF5F2A935c88b0c750cAcdaA9e7368d](https://celoscan.io/address/0x204653A89FF5F2A935c88b0c750cAcdaA9e7368d) |
+| Calibur | [0x48A910C8e9FF0b14051b78d0c96dB069E57f0729](https://gnosisscan.io/address/0x48A910C8e9FF0b14051b78d0c96dB069E57f0729) |
+| ERC1967Factory | [0xB286994c648F98fD3a3BA6C43934828a5b88162b](https://gnosisscan.io/address/0xB286994c648F98fD3a3BA6C43934828a5b88162b) |
+| AccountsIndex | [0x3cA9AB9b8628b43f1A1c53f29e969BA84Ef88BeE](https://gnosisscan.io/address/0x3cA9AB9b8628b43f1A1c53f29e969BA84Ef88BeE) |
+| CAT | [0xA12148B6eeb347298F17eCC5AC0377592850202E](https://gnosisscan.io/address/0xA12148B6eeb347298F17eCC5AC0377592850202E) |
+| ContractRegistry | [0x273B65EA845E2832f41d8d4366E6Cc3a9Fc67186](https://gnosisscan.io/address/0x273B65EA845E2832f41d8d4366E6Cc3a9Fc67186) |
+| EthFaucet | [0x3dF58d637f03CD5174c5533FB89cb9B6fd855Ad3](https://gnosisscan.io/address/0x3dF58d637f03CD5174c5533FB89cb9B6fd855Ad3) |
+| FeePolicy | [0x1b97FfFAF2D2e16C8F7de6826F4F658dc898E5b6](https://gnosisscan.io/address/0x1b97FfFAF2D2e16C8F7de6826F4F658dc898E5b6) |
+| GiftableToken | [0x34445d13F112A11f72C1d353a7dcdc407F3df2d8](https://gnosisscan.io/address/0x34445d13F112A11f72C1d353a7dcdc407F3df2d8) |
+| Limiter | [0x258AAd6c933F70D7F071E112800a41Fb60434048](https://gnosisscan.io/address/0x258AAd6c933F70D7F071E112800a41Fb60434048) |
+| OracleQuoter | [0x3334fd1eA4c7e4dCA51f5E62EE3F5f7Dcbd098BA](https://gnosisscan.io/address/0x3334fd1eA4c7e4dCA51f5E62EE3F5f7Dcbd098BA) |
+| PeriodSimple | [0x8608051473603279EE982E87f765A78d3D080b00](https://gnosisscan.io/address/0x8608051473603279EE982E87f765A78d3D080b00) |
+| ProtocolFeeController | [0x302E6d520e7D7AeFceA4813e456234B5daA23B4d](https://gnosisscan.io/address/0x302E6d520e7D7AeFceA4813e456234B5daA23B4d) |
+| RelativeQuoter | [0x0B0986c0E580377389337C453Cc65A3933511165](https://gnosisscan.io/address/0x0B0986c0E580377389337C453Cc65A3933511165) |
+| Splitter | [0x3b1F9bCC82f2dA5607dcDFCb21E47Cf64Ee54274](https://gnosisscan.io/address/0x3b1F9bCC82f2dA5607dcDFCb21E47Cf64Ee54274) |
+| SwapPool | [0x9e694D342Cab02e295262B2290b0E64A0334160D](https://gnosisscan.io/address/0x9e694D342Cab02e295262B2290b0E64A0334160D) |
+| TokenUniqueSymbolIndex | [0x0CEB18BA6562D3227717D98c044A5849bE8362EF](https://gnosisscan.io/address/0x0CEB18BA6562D3227717D98c044A5849bE8362EF) |
+| DecimalQuoter | [0x336f493d5472FD59e9E05128804E2D05Be89c4B7](https://gnosisscan.io/address/0x336f493d5472FD59e9E05128804E2D05Be89c4B7) |
+| SwapRouter | [0x16e3F29dDe22eF75C081A764C4d200Cd48647bcC](https://gnosisscan.io/address/0x16e3F29dDe22eF75C081A764C4d200Cd48647bcC) |
+| RescueVault | [0x3E5D8d8f63c57EA5DD62cF5aeC7212C50bDA69EF](https://gnosisscan.io/address/0x3E5D8d8f63c57EA5DD62cF5aeC7212C50bDA69EF) |
+
+Protocol implementations are published with `scripts/deploy-implementations.sh`.
+
+### Security audit
+
+* [Sarafu Network Protocol Smart Contract Security Assessment](audits/Sarafu-Protocol-Security-Audit.pdf): Internal engineering review of all protocol contracts at commit `f0944d9`; this is not an independent third-party certification.
 
 ### License and Attributions
 

@@ -1,6 +1,6 @@
 # Deploy Guide
 
-This guide covers deploying to Celo mainnet. For Alfajores testnet substitute `--chain-id 44787` and `--verifier-url https://api.etherscan.io/v2/api?chainid=44787`.
+This guide covers deploying to Gnosis mainnet. Implementations can also be published with `scripts/deploy-implementations.sh`.
 
 ## Prerequisites
 
@@ -12,15 +12,14 @@ go build -o ./ge-publish ./cmd/ge-publish
 make all
 
 # environment — set once, used throughout
-export RPC_URL=https://forno.celo.org
-export CHAIN_ID=42220
+export RPC_URL=https://rpc.gnosischain.com
+export CHAIN_ID=100
 export PRIVATE_KEY=<deployer hex key>
 export OWNER=<owner address>
 export ADMIN=<proxy admin; must differ from OWNER — a timelock or multisig>
-export ETHERSCAN_API_KEY=<api key from etherscan.io — works for all chains via V2>
 
 # shorthand used in every command below
-GAS="--gas-fee-cap 35000000000 --gas-tip-cap 100"
+GAS="--gas-fee-cap 2000000000 --gas-tip-cap 1000000000"
 BASE="--rpc-url $RPC_URL --chain-id $CHAIN_ID --private-key $PRIVATE_KEY $GAS"
 ```
 
@@ -134,11 +133,11 @@ export RESCUE_VAULT=0x...
 
 ---
 
-## 4. Verify All Implementations on Celoscan
+## 4. Verify All Implementations on Gnosisscan / Blockscout
 
 Common flags for every verify call:
 ```bash
-VERIFY="--chain-id 42220 --compiler-version 0.8.34 --evm-version osaka --num-of-optimizations 200 --verifier etherscan --verifier-url https://api.etherscan.io/v2/api?chainid=42220 --etherscan-api-key $ETHERSCAN_API_KEY"
+VERIFY="--chain-id 100 --compiler-version 0.8.36 --evm-version osaka --num-of-optimizations 200 --verifier blockscout --verifier-url https://gnosisscan.io/api/"
 ```
 
 ```bash
@@ -172,7 +171,7 @@ forge verify-contract $FACTORY \
   lib/solady/src/utils/ERC1967Factory.sol:ERC1967Factory $VERIFY
 ```
 
-Celoscan will auto-detect ERC1967 proxy addresses and link them to their verified implementation. You do not need to separately verify proxy contracts.
+Gnosisscan will auto-detect ERC1967 proxy addresses and link them to their verified implementation. You do not need to separately verify proxy contracts.
 
 ---
 
@@ -229,7 +228,7 @@ After deployment, set oracle feeds for each token (as owner):
 ```bash
 cast send $ORACLEQUOTER_PROXY \
   "setOracle(address,address)" $TOKEN_ADDRESS $CHAINLINK_FEED_ADDRESS \
-  --rpc-url $RPC_URL --private-key $PRIVATE_KEY --gas-price 35gwei
+  --rpc-url $RPC_URL --private-key $PRIVATE_KEY
 ```
 
 ### GiftableToken
@@ -268,7 +267,7 @@ wired.**
 ```bash
 ./ge-publish deploy-proxy --contract ethfaucet $BASE \
   --factory-address $FACTORY --impl-address $IMPL_ETHFAUCET --owner $OWNER --admin $ADMIN \
-  --faucet-amount 1000000000000000  # drip amount in wei (0.001 CELO)
+  --faucet-amount 1000000000000000  # drip amount in wei (0.001 xDAI)
 ```
 
 Then wire the gating, as `$OWNER`. `$REGISTRY` is an AccountsIndex or
@@ -362,7 +361,7 @@ If no re-initialization is needed:
 cast send $FACTORY \
   "upgrade(address,address)" $PROXY_ADDRESS $NEW_IMPL \
   --rpc-url $RPC_URL --private-key $ADMIN_KEY \
-  --gas-limit 100000 --gas-price 35gwei
+  --gas-limit 100000
 ```
 
 If the new implementation added new state that requires initializing via a `reinitialize` function:
@@ -372,7 +371,7 @@ cast send $FACTORY \
   $PROXY_ADDRESS $NEW_IMPL \
   $(cast calldata "reinitialize(uint64)" 2) \
   --rpc-url $RPC_URL --private-key $ADMIN_KEY \
-  --gas-limit 200000 --gas-price 35gwei
+  --gas-limit 200000
 ```
 
 The upgrade takes effect immediately. All callers of the proxy address automatically use the new logic. The proxy address does not change.
@@ -395,7 +394,7 @@ Each proxy must be upgraded individually — there is no batch upgrade. Repeat s
 | EthFaucet | 2,000,000 |
 | GiftableToken | 2,000,000 |
 | PeriodSimple | 2,000,000 |
-| SwapPool | 2,500,000 |
+| SwapPool | 4,000,000 |
 | TokenUniqueSymbolIndex | 2,000,000 |
 | FeePolicy | 1,000,000 |
 | Limiter | 1,000,000 |
@@ -412,14 +411,13 @@ Each proxy must be upgraded individually — there is no batch upgrade. Repeat s
 
 | Setting | Value |
 |---|---|
-| Solidity | 0.8.34 |
+| Solidity | 0.8.36 |
 | EVM target | osaka |
 | Optimizer | enabled |
 | Optimizer runs | 200 |
 
 ### Chain IDs
 
-| Network | Chain ID | RPC | Etherscan V2 API |
+| Network | Chain ID | RPC | Explorer API |
 |---|---|---|---|
-| Celo mainnet | 42220 | `https://forno.celo.org` | `https://api.etherscan.io/v2/api?chainid=42220` |
-| Alfajores testnet | 44787 | `https://alfajores-forno.celo-testnet.org` | `https://api.etherscan.io/v2/api?chainid=44787` |
+| Gnosis mainnet | 100 | `https://rpc.gnosischain.com` | `https://gnosisscan.io/api/` |
