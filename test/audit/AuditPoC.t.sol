@@ -920,8 +920,11 @@ contract AuditOraclePoCTest is Test {
     //      codeless-address misconfiguration they exist to report.
     // -----------------------------------------------------------------
     function test_POC_I5_codelessOracle_namedErrorUnreachable() public {
+        address notAContract = makeAddr("notAContract");
+        // STOP matches an EOA's empty returndata; Foundry 1.7+ rewrites a true EOA.
+        vm.etch(notAContract, hex"00");
         vm.prank(owner);
-        q.setOracle(address(t6), makeAddr("notAContract")); // no validation
+        q.setOracle(address(t6), notAContract); // no validation
 
         try q.valueFor(address(t6b), address(t6), 1e6) returns (uint256) {
             fail();
@@ -932,6 +935,7 @@ contract AuditOraclePoCTest is Test {
 
     function test_POC_I5_codelessToken_namedErrorUnreachable() public {
         address notAToken = makeAddr("notAToken");
+        vm.etch(notAToken, hex"00");
         vm.prank(owner);
         q.setOracle(notAToken, address(feedFast));
 

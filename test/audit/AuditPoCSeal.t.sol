@@ -592,9 +592,12 @@ contract AuditPoCSealTest is Test {
         emit log_named_string("31-byte reply", ok4 ? "ACCEPTED" : "reverted");
         emit log_named_uint("  revert data length", e4.length);
 
-        // (e) registry with no code at all: call succeeds, decode blows up
+        // (e) registry with no code at all: call succeeds, decode blows up.
+        // STOP matches an EOA's empty returndata; Foundry 1.7+ rewrites a true EOA.
+        address codelessRegistry = makeAddr("codelessRegistry");
+        vm.etch(codelessRegistry, hex"00");
         vm.prank(owner);
-        p.setTokenRegistry(makeAddr("codelessRegistry"));
+        p.setTokenRegistry(codelessRegistry);
         vm.prank(user);
         (bool ok5, bytes memory e5) = address(p).call(abi.encodeCall(SwapPool.deposit, (address(t), 1e18)));
         assertFalse(ok5);

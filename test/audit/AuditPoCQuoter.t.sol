@@ -205,6 +205,8 @@ contract AuditPoCQuoterTest is Test {
 
     function test_POC_relativeQuoter_codelessToken_namedErrorUnreachable() public {
         address notAToken = makeAddr("notAToken");
+        // STOP matches an EOA's empty returndata; Foundry 1.7+ rewrites a true EOA.
+        vm.etch(notAToken, hex"00");
 
         try rq.valueFor(notAToken, address(t18), 1e18) returns (uint256) {
             fail();
