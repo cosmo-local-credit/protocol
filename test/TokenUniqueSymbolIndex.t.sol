@@ -14,6 +14,10 @@ contract TokenUniqueSymbolIndexTest is Test {
     error TokenSymbolTooLong();
     error NotFound();
     error SymbolAlreadyExists();
+    error TokenAlreadyExists();
+    error EmptySymbol();
+    error InvalidToken();
+    error ArrayLengthMismatch();
     error Unauthorized();
 
     TokenUniqueSymbolIndex index;
@@ -74,6 +78,16 @@ contract TokenUniqueSymbolIndexTest is Test {
         assertTrue(newIndex.have(address(tokenA)));
     }
 
+    function test_initialize_revertIf_array_lengths_differ() public {
+        TokenUniqueSymbolIndex newIndex = TokenUniqueSymbolIndex(payable(LibClone.clone(address(implementation))));
+        address[] memory tokensArr = new address[](1);
+        bytes32[] memory symbols = new bytes32[](0);
+        tokensArr[0] = address(tokenA);
+
+        vm.expectRevert(ArrayLengthMismatch.selector);
+        newIndex.initialize(owner, tokensArr, symbols);
+    }
+
     function test_register() public {
         vm.expectEmit(true, false, false, true);
         emit AddressAdded(address(tokenA));
@@ -97,6 +111,34 @@ contract TokenUniqueSymbolIndexTest is Test {
         vm.prank(writer);
         vm.expectRevert(SymbolAlreadyExists.selector);
         index.register(address(duplicate));
+    }
+
+    function test_register_revertIf_token_exists() public {
+        vm.startPrank(writer);
+        index.register(address(tokenA));
+        vm.expectRevert(TokenAlreadyExists.selector);
+        index.register(address(tokenA));
+        vm.stopPrank();
+
+        assertEq(index.entryCount(), 1);
+    }
+
+    function test_register_revertIf_symbol_empty() public {
+        MockToken empty = new MockToken("Empty", "");
+
+        vm.prank(writer);
+        vm.expectRevert(EmptySymbol.selector);
+        index.register(address(empty));
+    }
+
+    function test_initialize_revertIf_token_zero() public {
+        TokenUniqueSymbolIndex newIndex = TokenUniqueSymbolIndex(payable(LibClone.clone(address(implementation))));
+        address[] memory tokensArr = new address[](1);
+        bytes32[] memory symbols = new bytes32[](1);
+        symbols[0] = bytes32("ZERO");
+
+        vm.expectRevert(InvalidToken.selector);
+        newIndex.initialize(owner, tokensArr, symbols);
     }
 
     function test_register_revertIf_not_authorized() public {

@@ -90,6 +90,7 @@ Additional required flags by contract:
 | `decimalquoter` | none |
 | `swaprouter` | none |
 | `rescuevault` | none (`--admin` optional; defaults to deployer / owner) |
+| proxied contracts | `--admin` required and must differ from `--owner` |
 | `accountsindex` | none |
 | `cat` | none |
 | `ethfaucet` | none (`--faucet-amount` optional) |
@@ -107,7 +108,7 @@ Additional required flags by contract:
 
 Deterministic factory salt is derived from `erc1967factory.Name()` and packed as caller-address (20 bytes) + name bytes (12 bytes), matching CREATE2 caller-prefix salt requirements. Use `--factory-salt-suffix` (or `FACTORY_SALT_SUFFIX`) to vary deployments while keeping the same derivation scheme.
 
-`--pool-quoter` is a free-form string flag, but for `swappool` deployments the current CLI expects a hex address for an already deployed quoter proxy. Values like `relative` or `oracle` are not accepted there.
+`--pool-quoter` has no implicit default for `swappool`: pass the hex address of an already deployed RelativeQuoter or OracleQuoter proxy. Values like `relative` or `oracle` are not contract addresses and are rejected before any transaction is sent. The CLI also verifies on-chain code at the factory, implementation, and required SwapPool dependency addresses.
 
 `rescuevault` is always deployed directly with `CREATE` (no factory/proxy). Its CREATE address is determined by the deployer address and nonce; `--admin` only changes the constructor argument that controls who may sweep assets.
 

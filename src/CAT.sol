@@ -31,6 +31,7 @@ contract CAT is ICAT, Ownable, Initializable {
     }
 
     function initialize(address owner_) external initializer {
+        if (owner_ == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner_);
     }
 

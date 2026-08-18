@@ -34,6 +34,7 @@ contract GiftableToken is ERC20, Ownable, Initializable {
         external
         initializer
     {
+        if (owner == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner);
 
         _name = name_;

@@ -11,8 +11,9 @@ import {ILimiter} from "./interfaces/ILimiter.sol";
 import {IQuoter} from "./interfaces/IQuoter.sol";
 import "solady/auth/Ownable.sol";
 import "solady/utils/Initializable.sol";
+import "solady/utils/ReentrancyGuard.sol";
 
-contract SwapPool is IERC20Meta, Ownable, Initializable {
+contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     error Sealed();
     error InvalidState();
     error AlreadyLocked();
@@ -27,6 +28,10 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     error InvalidFeeAddress();
     error InsufficientFees();
     error InvalidRecipient();
+    error InvalidToken();
+    error Expired();
+    error InsufficientOutput();
+    error FeeTooHigh();
 
     address public tokenRegistry;
     address public tokenLimiter;
@@ -54,8 +59,17 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     uint8 constant FEE_STATE = 1;
     uint8 constant FEEADDRESS_STATE = 2;
     uint8 constant QUOTER_STATE = 4;
+    uint8 constant REGISTRY_STATE = 8;
+    uint8 constant LIMITER_STATE = 16;
 
-    uint8 public constant maxSealState = 7;
+    uint8 public constant maxSealState = 31;
+
+    // Reserved so that a later variable cannot be packed beside sealState
+    uint240 private __sealSlotPadding;
+    // Written at initialize (and when a legacy pool first becomes fully sealed)
+    // so raising maxSealState in a later implementation is not a silent unseal.
+    uint8 public fullSealMask;
+    uint256[48] private __gap;
 
     // Implements Seal
     event SealStateChange(bool indexed _final, uint256 _sealState);
@@ -68,6 +82,21 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         uint256 amountIn,
         uint256 amountOut,
         uint256 fee
+    );
+
+    /// @dev Detailed settlement data for indexers. `amountOut` is the balance
+    /// delta observed at the recipient, which can differ from `nominalAmountOut`
+    /// for fee-on-transfer output tokens.
+    event SwapSettlement(
+        address indexed initiator,
+        address indexed tokenIn,
+        address indexed tokenOut,
+        uint256 amountIn,
+        uint256 quotedAmountOut,
+        uint256 nominalAmountOut,
+        uint256 amountOut,
+        uint256 poolFee,
+        uint256 protocolFee
     );
 
     // Emitted only after an explicit liquidity donation
@@ -94,6 +123,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         bool feesDecoupled_,
         address protocolFeeController_
     ) external initializer {
+        if (owner == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner);
 
         _name = name_;
@@ -107,6 +137,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         quoter = quoter_;
         feesDecoupled = feesDecoupled_;
         protocolFeeController = protocolFeeController_;
+        fullSealMask = maxSealState;
     }
 
     function decimals() public view override returns (uint8) {
@@ -124,17 +155,31 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     function seal(uint8 _state) public onlyOwner returns (uint8) {
         if (_state > maxSealState) revert InvalidState();
         if (_state & sealState != 0) revert AlreadyLocked();
+        if (_state & FEEADDRESS_STATE != 0 && feeAddress == address(0)) revert InvalidState();
+        if (_state & REGISTRY_STATE != 0 && tokenRegistry == address(0)) revert InvalidState();
+        if (_state & LIMITER_STATE != 0 && tokenLimiter == address(0)) revert InvalidState();
         sealState |= _state;
-        emit SealStateChange(sealState == maxSealState, sealState);
+        uint8 mask = _fullSealMask();
+        if (fullSealMask == 0 && (sealState & maxSealState) == maxSealState) {
+            fullSealMask = maxSealState;
+            mask = maxSealState;
+        }
+        emit SealStateChange(sealState & mask == mask, sealState);
         return sealState;
     }
 
     function isSealed(uint8 _state) public view returns (bool) {
-        if (_state >= maxSealState) revert InvalidState();
+        if (_state > maxSealState) revert InvalidState();
         if (_state == 0) {
-            return sealState == maxSealState;
+            uint8 mask = _fullSealMask();
+            return sealState & mask == mask;
         }
         return _state & sealState == _state;
+    }
+
+    function _fullSealMask() private view returns (uint8) {
+        uint8 mask = fullSealMask;
+        return mask == 0 ? maxSealState : mask;
     }
 
     function setFeeAddress(address _feeAddress) public onlyOwner {
@@ -153,24 +198,33 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     }
 
     function setTokenRegistry(address _tokenRegistry) public onlyOwner {
+        if (isSealed(REGISTRY_STATE)) revert Sealed();
         tokenRegistry = _tokenRegistry;
     }
 
     function setTokenLimiter(address _tokenLimiter) public onlyOwner {
+        if (isSealed(LIMITER_STATE)) revert Sealed();
         tokenLimiter = _tokenLimiter;
     }
 
-    function deposit(address _token, uint256 _value) public {
-        _deposit(_token, _value);
-        emit Deposit(msg.sender, _token, _value);
+    // Returns the amount the pool actually received, which is what every
+    // downstream calculation is priced on
+    function deposit(address _token, uint256 _value) public nonReentrant returns (uint256 received) {
+        received = _deposit(_token, _value);
     }
 
-    function _deposit(address _token, uint256 _value) private {
+    function _deposit(address _token, uint256 _value) private returns (uint256 received) {
         mustAllowedToken(_token, tokenRegistry);
         mustWithinLimit(_token, _value);
 
+        uint256 balanceBefore = IERC20(_token).balanceOf(address(this));
         bool success = IERC20(_token).transferFrom(msg.sender, address(this), _value);
         if (!success) revert TransferFailed();
+
+        received = IERC20(_token).balanceOf(address(this)) - balanceBefore;
+        if (received == 0) revert TransferFailed();
+
+        emit Deposit(msg.sender, _token, received);
     }
 
     function getQuote(address _outToken, address _inToken, uint256 _value) public returns (uint256) {
@@ -193,10 +247,12 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     // Calculate the amount of output tokens received for a given input amount
     // Returns the net amount after all fees are deducted (including protocol fee)
     function getAmountOut(address _outToken, address _inToken, uint256 _amountIn) public returns (uint256) {
+        _mustFeeDomain(_inToken, _outToken);
+
         uint256 quotedValue = getQuote(_outToken, _inToken, _amountIn);
         uint256 totalFee = getFee(_inToken, _outToken, quotedValue);
         uint256 protocolFee = _calcProtocolFee(quotedValue, totalFee);
-        return quotedValue - totalFee - protocolFee;
+        return _netAfterFees(quotedValue, totalFee, protocolFee);
     }
 
     // Calculate the amount of input tokens required to receive a desired output amount
@@ -224,6 +280,19 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         return amountIn + 1;
     }
 
+    // The pool fee and the protocol fee are set by two contracts with separate
+    // owners, neither of which can see the other's value. Only the pool can
+    // evaluate the joint constraint, and both swap directions test the same
+    // predicate so that a rejected configuration is rejected either way round.
+    function _mustFeeDomain(address _inToken, address _outToken) private view {
+        uint256 feePpm = feePolicy == address(0) ? 0 : IFeePolicy(feePolicy).getFee(_inToken, _outToken);
+        _mustFeeDomainPpm(feePpm, _getProtocolFeePpm());
+    }
+
+    function _mustFeeDomainPpm(uint256 _feePpm, uint256 _protocolFeePpm) private pure {
+        if (_feePpm >= DEFAULT_FEE_PPM && _feePpm * (PPM + _protocolFeePpm) >= PPM * PPM) revert FeeTooHigh();
+    }
+
     // Extract protocol fee PPM, returning 0 if controller is unset or recipient is zero
     function _getProtocolFeePpm() internal view returns (uint256) {
         if (protocolFeeController == address(0)) return 0;
@@ -245,6 +314,8 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         if (_feePpm == 0 && _protocolFeePpm == 0) {
             return _netOutput;
         }
+
+        _mustFeeDomainPpm(_feePpm, _protocolFeePpm);
 
         // The protocol fee is based on max(totalFee, assumedFee) where assumedFee uses DEFAULT_FEE_PPM
         // Two cases based on whether pool fee >= DEFAULT_FEE_PPM (the floor)
@@ -274,19 +345,47 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         return (_netOutput * ppmSquared + denominator - 1) / denominator;
     }
 
-    function withdraw(address _outToken, address _inToken, uint256 _value) public {
-        _swap(_outToken, _inToken, _value, msg.sender);
+    function withdraw(address _outToken, address _inToken, uint256 _value) public nonReentrant returns (uint256) {
+        return _swap(_outToken, _inToken, _value, msg.sender);
     }
 
-    function withdraw(address _outToken, address _inToken, uint256 _value, address _recipient) public {
+    function withdraw(address _outToken, address _inToken, uint256 _value, address _recipient)
+        public
+        nonReentrant
+        returns (uint256)
+    {
         if (_recipient == address(0)) revert InvalidRecipient();
-        _swap(_outToken, _inToken, _value, _recipient);
+        return _swap(_outToken, _inToken, _value, _recipient);
     }
 
-    function _swap(address _outToken, address _inToken, uint256 _value, address _recipient) private {
-        deposit(_inToken, _value);
+    // Bounded swap: reverts unless the caller receives at least _minAmountOut
+    // and the transaction is mined on or before _deadline
+    function withdraw(
+        address _outToken,
+        address _inToken,
+        uint256 _value,
+        address _recipient,
+        uint256 _minAmountOut,
+        uint256 _deadline
+    ) public nonReentrant returns (uint256 netValue) {
+        if (_recipient == address(0)) revert InvalidRecipient();
+        if (block.timestamp > _deadline) revert Expired();
 
-        uint256 quotedValue = getQuote(_outToken, _inToken, _value);
+        netValue = _swap(_outToken, _inToken, _value, _recipient);
+        if (netValue < _minAmountOut) revert InsufficientOutput();
+    }
+
+    function _swap(address _outToken, address _inToken, uint256 _value, address _recipient)
+        private
+        returns (uint256 netValue)
+    {
+        if (_inToken == _outToken) revert InvalidToken();
+        mustAllowedToken(_outToken, tokenRegistry);
+        _mustFeeDomain(_inToken, _outToken);
+
+        uint256 received = _deposit(_inToken, _value);
+
+        uint256 quotedValue = getQuote(_outToken, _inToken, received);
         uint256 totalFee = getFee(_inToken, _outToken, quotedValue);
 
         // Check sufficient liquidity
@@ -303,23 +402,40 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
         // The pool owner always receives their full totalFee.
         // Floor at DEFAULT_FEE_PPM (1%) of quotedValue prevents gaming via tiny pool fees.
         uint256 protocolFee = _calcProtocolFee(quotedValue, totalFee);
-        uint256 netValue = quotedValue - totalFee - protocolFee;
+        uint256 nominalNetValue = _netAfterFees(quotedValue, totalFee, protocolFee);
 
         if (protocolFee > 0) {
             if (!IERC20(_outToken).transfer(_getProtocolRecipient(), protocolFee)) revert TransferFailed();
         }
-        if (!IERC20(_outToken).transfer(_recipient, netValue)) revert TransferFailed();
+        uint256 recipientBalanceBefore = IERC20(_outToken).balanceOf(_recipient);
+        if (!IERC20(_outToken).transfer(_recipient, nominalNetValue)) revert TransferFailed();
+        uint256 recipientBalanceAfter = IERC20(_outToken).balanceOf(_recipient);
+        netValue = recipientBalanceAfter > recipientBalanceBefore ? recipientBalanceAfter - recipientBalanceBefore : 0;
+        if (netValue == 0) revert InsufficientOutput();
 
         if (totalFee > 0 && feeAddress != address(0)) {
             fees[_outToken] += totalFee;
         }
 
-        emit Swap(msg.sender, _inToken, _outToken, _value, quotedValue, totalFee);
+        emit Swap(msg.sender, _inToken, _outToken, received, netValue, totalFee);
+        emit SwapSettlement(
+            msg.sender, _inToken, _outToken, received, quotedValue, nominalNetValue, netValue, totalFee, protocolFee
+        );
     }
 
     function _getProtocolRecipient() internal view returns (address) {
         if (protocolFeeController == address(0)) return address(0);
         return IProtocolFeeController(protocolFeeController).getProtocolFeeRecipient();
+    }
+
+    function _netAfterFees(uint256 quotedValue, uint256 totalFee, uint256 protocolFee)
+        internal
+        pure
+        returns (uint256 netValue)
+    {
+        if (totalFee + protocolFee > quotedValue) revert FeeTooHigh();
+        netValue = quotedValue - totalFee - protocolFee;
+        if (netValue == 0) revert InsufficientOutput();
     }
 
     function _calcProtocolFee(uint256 quotedValue, uint256 totalFee) internal view returns (uint256) {
@@ -365,8 +481,11 @@ contract SwapPool is IERC20Meta, Ownable, Initializable {
     // Certain use-cases may require this functionality.
     // It is recommended that the owner be a timelock or multisig or both.
     function withdrawLiquidity(address token, address to, uint256 amount) external onlyOwner returns (uint256) {
+        if (to == address(0)) revert InvalidRecipient();
         uint256 balance = IERC20(token).balanceOf(address(this));
-        if (amount > balance) revert InsufficientBalance();
+        uint256 reserved = feesDecoupled ? fees[token] : 0;
+        uint256 available = balance > reserved ? balance - reserved : 0;
+        if (amount > available) revert InsufficientBalance();
 
         bool success = IERC20(token).transfer(to, amount);
         if (!success) revert TransferFailed();

@@ -22,6 +22,7 @@ contract ContractRegistry is Ownable, Initializable {
     }
 
     function initialize(address owner_, bytes32[] memory _identifiers) external initializer {
+        if (owner_ == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner_);
 
         for (uint256 i = 0; i < _identifiers.length; i++) {

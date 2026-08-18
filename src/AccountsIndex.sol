@@ -13,6 +13,7 @@ contract AccountsIndex is Ownable, Initializable {
     error NotBlocked();
     error NotActive();
     error IndexFull();
+    error InvalidAddress();
 
     uint256 constant BLOCKED_FIELD = 1 << 128;
 
@@ -32,6 +33,7 @@ contract AccountsIndex is Ownable, Initializable {
     }
 
     function initialize(address owner_) external initializer {
+        if (owner_ == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner_);
         entryList.push(address(0));
     }
@@ -58,6 +60,7 @@ contract AccountsIndex is Ownable, Initializable {
 
     function add(address _account) external returns (bool) {
         if (!writers[msg.sender] && msg.sender != owner()) revert Access();
+        if (_account == address(0)) revert InvalidAddress();
         if (entryIndex[_account] != 0) revert AlreadyExists();
         if (entryList.length >= (1 << 64)) revert IndexFull();
 
@@ -73,7 +76,7 @@ contract AccountsIndex is Ownable, Initializable {
 
     function remove(address _account) external returns (bool) {
         if (!writers[msg.sender] && msg.sender != owner()) revert Access();
-        if (!this.have(_account)) revert AlreadyExists();
+        if (entryIndex[_account] == 0) revert AlreadyExists();
 
         uint256 l = entryList.length - 1;
         uint256 i = uint64(entryIndex[_account]);
@@ -116,16 +119,23 @@ contract AccountsIndex is Ownable, Initializable {
     }
 
     function time(address _account) external view returns (uint256) {
-        if (entryIndex[_account] == 0) revert NotFound();
-        return entryIndex[_account] >> 64;
+        uint256 stored = entryIndex[_account];
+        if (stored == 0) revert NotFound();
+        return (stored & ~BLOCKED_FIELD) >> 64;
+    }
+
+    function contains(address _account) external view returns (bool) {
+        return entryIndex[_account] != 0;
     }
 
     function have(address _account) external view returns (bool) {
-        return entryIndex[_account] > 0;
+        uint256 stored = entryIndex[_account];
+        return stored != 0 && (stored & BLOCKED_FIELD) == 0;
     }
 
     function isActive(address _account) external view returns (bool) {
-        return this.have(_account) && (entryIndex[_account] & BLOCKED_FIELD) != BLOCKED_FIELD;
+        uint256 stored = entryIndex[_account];
+        return stored != 0 && (stored & BLOCKED_FIELD) == 0;
     }
 
     function supportsInterface(bytes4 _sum) external pure returns (bool) {

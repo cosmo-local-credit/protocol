@@ -23,15 +23,18 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
     uint256 private constant DEFAULT_MAX_STALENESS = 86400; // 1 day
     uint256 private constant PPM = 1_000_000;
     uint256 private constant MIN_MULTIPLIER = 900_000; // 0.9x
-    uint256 private constant MAX_MULTIPLIER = 1_100_000; // 1.1x
+    uint256 private constant MAX_MULTIPLIER = PPM; // 1.0x — parity is the ceiling
 
     mapping(address => address) public oracles;
     address public baseCurrency;
     uint256 public maxStaleness;
     uint256 public multiplier;
+    // Appended to preserve the proxy storage layout of all existing fields.
+    mapping(address => uint256) public oracleMaxStaleness;
 
     event Initialized(address indexed owner, address indexed baseCurrency);
     event OracleUpdated(address indexed token, address indexed oracle);
+    event OracleMaxStalenessUpdated(address indexed token, uint256 maxStaleness);
     event OracleRemoved(address indexed token);
     event MaxStalenessUpdated(uint256 maxStaleness);
     event MultiplierUpdated(uint256 oldMultiplier, uint256 newMultiplier);
@@ -41,6 +44,7 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
     }
 
     function initialize(address owner, address _baseCurrency) external initializer {
+        if (owner == address(0)) revert NewOwnerIsZeroAddress();
         if (_baseCurrency == address(0)) revert InvalidBaseCurrency();
         _initializeOwner(owner);
         baseCurrency = _baseCurrency;
@@ -61,13 +65,26 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
     }
 
     function setOracle(address token, address oracleAddress) public onlyOwner {
+        _setOracle(token, oracleAddress, 0);
+    }
+
+    /// @notice Sets an oracle together with its feed-specific freshness bound.
+    /// @dev A zero override falls back to the global maxStaleness value.
+    function setOracle(address token, address oracleAddress, uint256 maxStaleness_) public onlyOwner {
+        _setOracle(token, oracleAddress, maxStaleness_);
+    }
+
+    function _setOracle(address token, address oracleAddress, uint256 maxStaleness_) internal {
         if (token == address(0) || oracleAddress == address(0)) revert InvalidToken();
         oracles[token] = oracleAddress;
+        oracleMaxStaleness[token] = maxStaleness_;
         emit OracleUpdated(token, oracleAddress);
+        emit OracleMaxStalenessUpdated(token, maxStaleness_);
     }
 
     function removeOracle(address token) public onlyOwner {
         delete oracles[token];
+        delete oracleMaxStaleness[token];
         emit OracleRemoved(token);
     }
 
@@ -103,7 +120,9 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
             uint80, int256 answer, uint256, uint256 updatedAt, uint80
         ) {
             if (answer <= 0) revert InvalidOraclePrice(oracle);
-            if (block.timestamp - updatedAt > maxStaleness) revert StaleOraclePrice(oracle);
+            uint256 staleness = oracleMaxStaleness[token];
+            if (staleness == 0) staleness = maxStaleness;
+            if (block.timestamp - updatedAt > staleness) revert StaleOraclePrice(oracle);
             rate = uint256(answer);
         } catch Error(string memory reason) {
             revert OracleCallFailed(oracle, reason);
@@ -164,12 +183,12 @@ contract OracleQuoter is IQuoter, Ownable, Initializable {
         (uint256 inRate, uint8 inRateDecimals) = getOracleRate(_inToken);
         (uint256 outRate, uint8 outRateDecimals) = getOracleRate(_outToken);
 
-        uint256 output = reverseOutput(_value, din, dout, inRate, inRateDecimals, outRate, outRateDecimals);
-
-        // Reverse the multiplier: divide by it instead of multiplying
-        // valueFor applies: output * M / PPM, so reverse: ceil(value * PPM / M)
+        // valueFor applies the multiplier after the rate conversion. Invert the
+        // outer stage first so the rate conversion's floor cannot erase the
+        // rounding margin required by the requested output.
         uint256 effectiveMultiplier = multiplier == 0 ? PPM : multiplier;
-        return FixedPointMathLib.fullMulDivUp(output, PPM, effectiveMultiplier);
+        uint256 target = FixedPointMathLib.fullMulDivUp(_value, PPM, effectiveMultiplier);
+        return reverseOutput(target, din, dout, inRate, inRateDecimals, outRate, outRateDecimals);
     }
 
     function reverseOutput(

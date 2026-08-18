@@ -16,6 +16,8 @@ contract EthFaucet is Ownable, Initializable {
     error PeriodBackend();
     error RegistryBackend();
     error PeriodBackendError();
+    error InvalidAddress();
+    error WithdrawFailed();
 
     address public registry;
     address public periodChecker;
@@ -32,12 +34,14 @@ contract EthFaucet is Ownable, Initializable {
     event Give(address indexed _recipient, address indexed _token, uint256 _amount);
     event FaucetAmountChange(uint256 _amount);
     event SealStateChange(uint256 indexed _sealState, address _registry, address _periodChecker);
+    event Withdraw(address indexed _recipient, uint256 _amount);
 
     constructor() {
         _disableInitializers();
     }
 
     function initialize(address owner_, uint256 amount_) external initializer {
+        if (owner_ == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner_);
         amount = amount_;
     }
@@ -47,6 +51,9 @@ contract EthFaucet is Ownable, Initializable {
     function seal(uint8 _state) public onlyOwner returns (uint256) {
         if (_state > maxSealState) revert InvalidState();
         if (_state & sealState != 0) revert AlreadyLocked();
+        if (_state & REGISTRY_STATE != 0 && registry == address(0)) revert InvalidState();
+        if (_state & PERIODCHECKER_STATE != 0 && periodChecker == address(0)) revert InvalidState();
+        if (_state & VALUE_STATE != 0 && amount == 0) revert InvalidState();
         sealState |= _state;
         emit SealStateChange(sealState, registry, periodChecker);
         return sealState;
@@ -61,34 +68,50 @@ contract EthFaucet is Ownable, Initializable {
 
     function setPeriodChecker(address _checker) public onlyOwner {
         if (sealState & PERIODCHECKER_STATE != 0) revert Sealed();
+        if (_checker == address(0)) revert InvalidAddress();
         periodChecker = _checker;
         emit SealStateChange(sealState, registry, periodChecker);
     }
 
     function setRegistry(address _registry) public onlyOwner {
         if (sealState & REGISTRY_STATE != 0) revert Sealed();
+        if (_registry == address(0)) revert InvalidAddress();
         registry = _registry;
         emit SealStateChange(sealState, registry, periodChecker);
     }
 
+    // Both gates fail closed: an unconfigured backend serves nothing
     function _checkPeriod(address _recipient) private returns (bool) {
-        if (periodChecker == address(0)) {
-            return true;
-        }
+        if (periodChecker == address(0)) revert PeriodBackend();
 
         (bool ok, bytes memory result) = periodChecker.call(abi.encodeWithSignature("have(address)", _recipient));
         if (!ok) revert PeriodBackend();
-        return result[31] == 0x01;
+        return _decodeBackendBool(result, true);
     }
 
     function _checkRegistry(address _recipient) private returns (bool) {
-        if (registry == address(0)) {
-            return true;
-        }
+        if (registry == address(0)) revert RegistryBackend();
 
         (bool ok, bytes memory result) = registry.call(abi.encodeWithSignature("have(address)", _recipient));
         if (!ok) revert RegistryBackend();
-        return result[31] == 0x01;
+        return _decodeBackendBool(result, false);
+    }
+
+    function _decodeBackendBool(bytes memory result, bool isPeriod) private pure returns (bool) {
+        if (result.length < 32) {
+            if (isPeriod) revert PeriodBackend();
+            revert RegistryBackend();
+        }
+
+        uint256 word;
+        assembly {
+            word := mload(add(result, 0x20))
+        }
+        if (word > 1) {
+            if (isPeriod) revert PeriodBackend();
+            revert RegistryBackend();
+        }
+        return word == 1;
     }
 
     function _checkBalance() private view returns (bool) {
@@ -96,6 +119,9 @@ contract EthFaucet is Ownable, Initializable {
     }
 
     function check(address _recipient) public returns (bool) {
+        if (registry == address(0) || periodChecker == address(0)) {
+            return false;
+        }
         if (!_checkPeriod(_recipient)) {
             return false;
         }
@@ -114,13 +140,11 @@ contract EthFaucet is Ownable, Initializable {
             revert NotInWhitelist();
         }
 
-        if (periodChecker == address(0)) {
-            return true;
-        }
+        if (periodChecker == address(0)) revert PeriodBackend();
 
         (bool ok, bytes memory result) = periodChecker.call(abi.encodeWithSignature("poke(address)", _recipient));
         if (!ok) revert PeriodBackend();
-        if (result[31] == 0) revert PeriodBackend();
+        if (!_decodeBackendBool(result, true)) revert PeriodBackend();
         return true;
     }
 
@@ -132,21 +156,33 @@ contract EthFaucet is Ownable, Initializable {
     }
 
     function giveTo(address _recipient) public returns (uint256) {
+        if (_recipient == address(0)) revert InvalidAddress();
         if (!_checkAndPoke(_recipient)) revert PeriodBackend();
         payable(_recipient).transfer(amount);
         emit Give(_recipient, address(0), amount);
         return amount;
     }
 
+    function withdraw(address payable _recipient, uint256 _value) external onlyOwner returns (uint256) {
+        if (_recipient == address(0)) revert InvalidAddress();
+        if (_value > address(this).balance) revert InsufficientBalance();
+
+        (bool ok,) = _recipient.call{value: _value}("");
+        if (!ok) revert WithdrawFailed();
+
+        emit Withdraw(_recipient, _value);
+        return _value;
+    }
+
     function nextTime(address _subject) public returns (uint256) {
         (bool ok, bytes memory result) = periodChecker.call(abi.encodeWithSignature("next(address)", _subject));
-        if (!ok) revert PeriodBackendError();
+        if (!ok || result.length < 32) revert PeriodBackendError();
         return abi.decode(result, (uint256));
     }
 
     function nextBalance(address _subject) public returns (uint256) {
         (bool ok, bytes memory result) = periodChecker.call(abi.encodeWithSignature("balanceThreshold()", _subject));
-        if (!ok) revert PeriodBackendError();
+        if (!ok || result.length < 32) revert PeriodBackendError();
         return abi.decode(result, (uint256));
     }
 

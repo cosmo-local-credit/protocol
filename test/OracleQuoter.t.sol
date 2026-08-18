@@ -43,6 +43,7 @@ contract OracleQuoterTest is Test {
 
     event Initialized(address indexed owner, address indexed baseCurrency);
     event OracleUpdated(address indexed token, address indexed oracle);
+    event OracleMaxStalenessUpdated(address indexed token, uint256 maxStaleness);
     event OracleRemoved(address indexed token);
     event MultiplierUpdated(uint256 oldMultiplier, uint256 newMultiplier);
 
@@ -117,6 +118,25 @@ contract OracleQuoterTest is Test {
         assertEq(quoter.oracles(address(tokenSRF)), newOracle);
     }
 
+    function test_setOracle_withFeedSpecificStaleness() public {
+        address newOracle = makeAddr("feedSpecificOracle");
+
+        vm.prank(owner);
+        quoter.setOracle(address(tokenSRF), newOracle, 3600);
+
+        assertEq(quoter.oracles(address(tokenSRF)), newOracle);
+        assertEq(quoter.oracleMaxStaleness(address(tokenSRF)), 3600);
+    }
+
+    function test_setOracle_legacyOverloadClearsFeedSpecificStaleness() public {
+        vm.startPrank(owner);
+        quoter.setOracle(address(tokenSRF), address(oracleSRF), 3600);
+        quoter.setOracle(address(tokenSRF), address(oracleSRF));
+        vm.stopPrank();
+
+        assertEq(quoter.oracleMaxStaleness(address(tokenSRF)), 0, "uses the global fallback again");
+    }
+
     function test_setOracle_revertIf_notOwner() public {
         vm.prank(makeAddr("notOwner"));
         vm.expectRevert(Ownable.Unauthorized.selector);
@@ -131,11 +151,15 @@ contract OracleQuoterTest is Test {
 
     function test_removeOracle() public {
         vm.prank(owner);
+        quoter.setOracle(address(tokenSRF), address(oracleSRF), 3600);
+
+        vm.prank(owner);
         vm.expectEmit(true, false, false, true);
         emit OracleRemoved(address(tokenSRF));
         quoter.removeOracle(address(tokenSRF));
 
         assertEq(quoter.oracles(address(tokenSRF)), address(0));
+        assertEq(quoter.oracleMaxStaleness(address(tokenSRF)), 0);
     }
 
     function test_removeOracle_revertIf_notOwner() public {
@@ -342,15 +366,15 @@ contract OracleQuoterTest is Test {
 
     function test_setMultiplier() public {
         vm.prank(owner);
-        quoter.setMultiplier(1_050_000);
-        assertEq(quoter.multiplier(), 1_050_000);
+        quoter.setMultiplier(950_000);
+        assertEq(quoter.multiplier(), 950_000);
     }
 
     function test_setMultiplier_emitsEvent() public {
         vm.prank(owner);
         vm.expectEmit(false, false, false, true);
-        emit MultiplierUpdated(0, 1_050_000);
-        quoter.setMultiplier(1_050_000);
+        emit MultiplierUpdated(0, 950_000);
+        quoter.setMultiplier(950_000);
     }
 
     function test_setMultiplier_revertIf_notOwner() public {
@@ -368,7 +392,7 @@ contract OracleQuoterTest is Test {
     function test_setMultiplier_revertIf_tooHigh() public {
         vm.prank(owner);
         vm.expectRevert(InvalidMultiplier.selector);
-        quoter.setMultiplier(1_100_001);
+        quoter.setMultiplier(1_000_001);
     }
 
     function test_setMultiplier_boundaryMin() public {
@@ -379,16 +403,16 @@ contract OracleQuoterTest is Test {
 
     function test_setMultiplier_boundaryMax() public {
         vm.prank(owner);
-        quoter.setMultiplier(1_100_000);
-        assertEq(quoter.multiplier(), 1_100_000);
+        quoter.setMultiplier(1_000_000);
+        assertEq(quoter.multiplier(), 1_000_000);
     }
 
-    function test_valueFor_withMultiplier_1_05x() public {
+    function test_valueFor_withMultiplier_0_95x() public {
         vm.prank(owner);
-        quoter.setMultiplier(1_050_000);
-        // 1 SRF = 2 MBAO, * 1.05 = 2.1 MBAO
+        quoter.setMultiplier(950_000);
+        // 1 SRF = 2 MBAO, * 0.95 = 1.9 MBAO
         uint256 output = quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
-        assertEq(output, 2_100_000);
+        assertEq(output, 1_900_000);
     }
 
     function test_valueFor_withMultiplier_0_9x() public {
@@ -401,11 +425,11 @@ contract OracleQuoterTest is Test {
 
     function test_valueFor_withMultiplier_crossDecimals() public {
         vm.prank(owner);
-        quoter.setMultiplier(1_100_000);
-        // 100 USDC (18d) -> SRF (6d) at 1:1 rate = 100 SRF, * 1.1 = 110 SRF
+        quoter.setMultiplier(900_000);
+        // 100 USDC (18d) -> SRF (6d) at 1:1 rate = 100 SRF, * 0.9 = 90 SRF
         uint256 input = 100 * 10 ** 18;
         uint256 output = quoter.valueFor(address(tokenSRF), address(tokenUSDC), input);
-        assertEq(output, 110 * 10 ** 6);
+        assertEq(output, 90 * 10 ** 6);
     }
 
     function test_reverseValueFor_sameDecimals() public {
@@ -416,21 +440,21 @@ contract OracleQuoterTest is Test {
         assertEq(reverseIn, 1_000_000, "reverse without multiplier");
     }
 
-    function test_reverseValueFor_withMultiplier_1_1x() public {
+    function test_reverseValueFor_withMultiplier_0_95x() public {
         vm.prank(owner);
-        quoter.setMultiplier(1_100_000); // 1.1x
+        quoter.setMultiplier(950_000); // 0.95x
 
-        // Forward: 1 SRF (1e6) -> 2 MBAO * 1.1 = 2.2 MBAO (2_200_000)
+        // Forward: 1 SRF (1e6) -> 2 MBAO * 0.95 = 1.9 MBAO (1_900_000)
         uint256 forwardOut = quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
-        assertEq(forwardOut, 2_200_000, "forward with 1.1x multiplier");
+        assertEq(forwardOut, 1_900_000, "forward with 0.95x multiplier");
 
-        // Reverse: want 2_200_000 MBAO, should need ~1_000_000 SRF
-        uint256 reverseIn = quoter.reverseValueFor(address(tokenMBAO), address(tokenSRF), 2_200_000);
-        assertEq(reverseIn, 1_000_000, "reverse with 1.1x multiplier");
+        // Reverse: want 1_900_000 MBAO, should need ~1_000_000 SRF
+        uint256 reverseIn = quoter.reverseValueFor(address(tokenMBAO), address(tokenSRF), 1_900_000);
+        assertEq(reverseIn, 1_000_000, "reverse with 0.95x multiplier");
 
         // Roundtrip: valueFor(reverseValueFor(x)) >= x
         uint256 roundtrip = quoter.valueFor(address(tokenMBAO), address(tokenSRF), reverseIn);
-        assertGe(roundtrip, 2_200_000, "roundtrip property");
+        assertGe(roundtrip, 1_900_000, "roundtrip property");
     }
 
     function test_reverseValueFor_withMultiplier_0_9x() public {
@@ -452,20 +476,20 @@ contract OracleQuoterTest is Test {
 
     function test_reverseValueFor_crossDecimals_withMultiplier() public {
         vm.prank(owner);
-        quoter.setMultiplier(1_100_000); // 1.1x
+        quoter.setMultiplier(900_000); // 0.9x
 
-        // Forward: 100 USDC (18d) -> SRF (6d) at 1:1 rate = 100 SRF, * 1.1 = 110 SRF
+        // Forward: 100 USDC (18d) -> SRF (6d) at 1:1 rate = 100 SRF, * 0.9 = 90 SRF
         uint256 input = 100 * 10 ** 18;
         uint256 forwardOut = quoter.valueFor(address(tokenSRF), address(tokenUSDC), input);
-        assertEq(forwardOut, 110 * 10 ** 6, "forward cross-decimals");
+        assertEq(forwardOut, 90 * 10 ** 6, "forward cross-decimals");
 
-        // Reverse: want 110 SRF (110e6), need ~100 USDC (100e18)
-        uint256 reverseIn = quoter.reverseValueFor(address(tokenSRF), address(tokenUSDC), 110 * 10 ** 6);
+        // Reverse: want 90 SRF (90e6), need ~100 USDC (100e18)
+        uint256 reverseIn = quoter.reverseValueFor(address(tokenSRF), address(tokenUSDC), 90 * 10 ** 6);
         assertEq(reverseIn, 100 * 10 ** 18, "reverse cross-decimals");
 
         // Roundtrip
         uint256 roundtrip = quoter.valueFor(address(tokenSRF), address(tokenUSDC), reverseIn);
-        assertGe(roundtrip, 110 * 10 ** 6, "roundtrip cross-decimals");
+        assertGe(roundtrip, 90 * 10 ** 6, "roundtrip cross-decimals");
     }
 
     function test_reverseValueFor_roundtrip_fuzz(uint256 amount) public {
@@ -481,7 +505,7 @@ contract OracleQuoterTest is Test {
         amount = bound(amount, 1, 1_000_000 * 10 ** 6);
 
         vm.prank(owner);
-        quoter.setMultiplier(1_050_000); // 1.05x
+        quoter.setMultiplier(950_000); // 0.95x
 
         uint256 reverseIn = quoter.reverseValueFor(address(tokenMBAO), address(tokenSRF), amount);
         uint256 roundtrip = quoter.valueFor(address(tokenMBAO), address(tokenSRF), reverseIn);
@@ -490,12 +514,49 @@ contract OracleQuoterTest is Test {
 
     function test_setMultiplier_resetToPPM() public {
         vm.startPrank(owner);
-        quoter.setMultiplier(1_050_000);
+        quoter.setMultiplier(950_000);
         quoter.setMultiplier(1_000_000);
         vm.stopPrank();
         // Explicit 1_000_000 should behave like unset (0)
         uint256 output = quoter.valueFor(address(tokenMBAO), address(tokenSRF), 1_000_000);
         assertEq(output, 2_000_000);
+    }
+
+    // C-1: parity is the ceiling. Above it the multiplier is a subsidy paid on
+    // both legs of a swap, not a spread, and any caller can compound it.
+    function test_setMultiplier_revertIf_aboveParity() public {
+        vm.startPrank(owner);
+        vm.expectRevert(InvalidMultiplier.selector);
+        quoter.setMultiplier(1_000_001);
+        vm.expectRevert(InvalidMultiplier.selector);
+        quoter.setMultiplier(1_050_000);
+        vm.expectRevert(InvalidMultiplier.selector);
+        quoter.setMultiplier(1_100_000);
+        vm.stopPrank();
+        assertEq(quoter.multiplier(), 0, "no above-parity value was accepted");
+    }
+
+    function test_multiplier_roundTripNeverProfits_fuzz(uint256 mult, uint256 amount) public {
+        mult = bound(mult, 900_000, 1_000_000);
+        amount = bound(amount, 1e6, 1_000_000e6);
+
+        vm.prank(owner);
+        quoter.setMultiplier(mult);
+
+        uint256 outLeg = quoter.valueFor(address(tokenMBAO), address(tokenSRF), amount);
+        uint256 backLeg = quoter.valueFor(address(tokenSRF), address(tokenMBAO), outLeg);
+
+        assertLe(backLeg, amount, "A->B->A can never return more than it started with");
+    }
+
+    function test_multiplier_selfQuoteNeverExceedsInput_fuzz(uint256 mult, uint256 amount) public {
+        mult = bound(mult, 900_000, 1_000_000);
+        amount = bound(amount, 1, 1_000_000e6);
+
+        vm.prank(owner);
+        quoter.setMultiplier(mult);
+
+        assertLe(quoter.valueFor(address(tokenSRF), address(tokenSRF), amount), amount, "self-quote is not a subsidy");
     }
 }
 
