@@ -40,6 +40,7 @@ Compiler: Solidity 0.8.36, EVM fork: osaka, optimizer: 200 runs (protocol). Cali
 | GiftableToken | [0x34445d13F112A11f72C1d353a7dcdc407F3df2d8](https://gnosisscan.io/address/0x34445d13F112A11f72C1d353a7dcdc407F3df2d8) |
 | Limiter | [0x258AAd6c933F70D7F071E112800a41Fb60434048](https://gnosisscan.io/address/0x258AAd6c933F70D7F071E112800a41Fb60434048) |
 | OracleQuoter | [0x3334fd1eA4c7e4dCA51f5E62EE3F5f7Dcbd098BA](https://gnosisscan.io/address/0x3334fd1eA4c7e4dCA51f5E62EE3F5f7Dcbd098BA) |
+| OracleRelay | [0x8439d90319D885E2Bb9E56e593Eac592EdC4246B](https://gnosisscan.io/address/0x8439d90319D885E2Bb9E56e593Eac592EdC4246B) |
 | PeriodSimple | [0x8608051473603279EE982E87f765A78d3D080b00](https://gnosisscan.io/address/0x8608051473603279EE982E87f765A78d3D080b00) |
 | ProtocolFeeController | [0x302E6d520e7D7AeFceA4813e456234B5daA23B4d](https://gnosisscan.io/address/0x302E6d520e7D7AeFceA4813e456234B5daA23B4d) |
 | RelativeQuoter | [0x0B0986c0E580377389337C453Cc65A3933511165](https://gnosisscan.io/address/0x0B0986c0E580377389337C453Cc65A3933511165) |
