@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/oraclerelay"
 )
 
 type fakeCodeReader struct {
@@ -119,5 +122,113 @@ func TestRunOneProxiedEncodesBeforeNetworkAccess(t *testing.T) {
 	)
 	if !errors.Is(err, encodeErr) {
 		t.Fatalf("runOneProxied() error = %v, want initializer error before network access", err)
+	}
+}
+
+func TestOracleRelayInitArgsRequiresWriter(t *testing.T) {
+	owner := common.HexToAddress("0x9000000000000000000000000000000000000009")
+
+	if _, err := oracleRelayInitArgs(config{}, owner); err == nil || !strings.Contains(err.Error(), "oracle-relay-writer is required") {
+		t.Fatalf("oracleRelayInitArgs() error = %v, want required-writer error", err)
+	}
+
+	_, err := oracleRelayInitArgs(config{OracleRelayWriter: common.Address{}.Hex()}, owner)
+	if err == nil || !strings.Contains(err.Error(), "must not be the zero address") {
+		t.Fatalf("oracleRelayInitArgs() error = %v, want zero-address error", err)
+	}
+
+	if _, err := oracleRelayInitArgs(config{OracleRelayWriter: "not-an-address"}, owner); err == nil {
+		t.Fatal("oracleRelayInitArgs() accepted a malformed writer address")
+	}
+
+	if _, err := oracleRelayInitArgs(config{
+		OracleRelayWriter:   "0x000000000000000000000000000000000000dEaD",
+		OracleRelayDecimals: 256,
+	}, owner); err == nil || !strings.Contains(err.Error(), "oracle-relay-decimals") {
+		t.Fatalf("oracleRelayInitArgs() error = %v, want decimals-range error", err)
+	}
+}
+
+func TestOracleRelayInitArgsNeverDefaultsWriterToOwner(t *testing.T) {
+	owner := common.HexToAddress("0x9000000000000000000000000000000000000009")
+	writer := common.HexToAddress("0x000000000000000000000000000000000000dEaD")
+
+	args, err := oracleRelayInitArgs(config{
+		OracleRelayWriter:      writer.Hex(),
+		OracleRelayDecimals:    8,
+		OracleRelayDescription: "KES / USD",
+	}, owner)
+	if err != nil {
+		t.Fatalf("oracleRelayInitArgs() error = %v", err)
+	}
+	if args.Owner != owner || args.Writer != writer {
+		t.Fatalf("oracleRelayInitArgs() = %+v, want owner %s writer %s", args, owner.Hex(), writer.Hex())
+	}
+	if args.Decimals != 8 || args.Description != "KES / USD" {
+		t.Fatalf("oracleRelayInitArgs() metadata = (%d, %q)", args.Decimals, args.Description)
+	}
+}
+
+func TestEncodeInitForOracleRelay(t *testing.T) {
+	owner := common.HexToAddress("0x9000000000000000000000000000000000000009")
+	writer := common.HexToAddress("0x000000000000000000000000000000000000dEaD")
+
+	if _, err := encodeInitFor("oraclerelay", config{}, owner, owner, owner, owner, owner, common.Address{}); err == nil {
+		t.Fatal("encodeInitFor() encoded oraclerelay without a writer")
+	}
+
+	cfg := config{
+		OracleRelayWriter:      writer.Hex(),
+		OracleRelayDecimals:    8,
+		OracleRelayDescription: "KES / USD",
+	}
+	data, err := encodeInitFor("oraclerelay", cfg, owner, owner, owner, owner, owner, common.Address{})
+	if err != nil {
+		t.Fatalf("encodeInitFor() error = %v", err)
+	}
+
+	want, err := oraclerelay.EncodeInit(oraclerelay.InitArgs{
+		Owner:       owner,
+		Writer:      writer,
+		Decimals:    8,
+		Description: "KES / USD",
+	})
+	if err != nil {
+		t.Fatalf("EncodeInit() error = %v", err)
+	}
+	if !bytes.Equal(data, want) {
+		t.Fatalf("encodeInitFor() = %x, want %x", data, want)
+	}
+}
+
+func TestContractBytecodeOracleRelay(t *testing.T) {
+	code, gas, err := contractBytecode("oraclerelay", common.Address{})
+	if err != nil {
+		t.Fatalf("contractBytecode() error = %v", err)
+	}
+	if len(code) == 0 {
+		t.Fatal("contractBytecode() returned empty OracleRelay bytecode")
+	}
+	if gas != oraclerelay.ImplGasLimit {
+		t.Fatalf("contractBytecode() gas = %d, want %d", gas, oraclerelay.ImplGasLimit)
+	}
+}
+
+func TestParseFlagsOracleRelayWriterHasNoImplicitDefault(t *testing.T) {
+	t.Setenv("ORACLE_RELAY_WRITER", "")
+	cfg, err := parseFlags([]string{
+		"--contract", "oraclerelay",
+		"--rpc-url", "http://localhost:8545",
+		"--chain-id", "1",
+		"--private-key", strings.Repeat("1", 64),
+	})
+	if err != nil {
+		t.Fatalf("parseFlags() error = %v", err)
+	}
+	if cfg.OracleRelayWriter != "" {
+		t.Fatalf("OracleRelayWriter = %q, want empty", cfg.OracleRelayWriter)
+	}
+	if cfg.OracleRelayDecimals != 8 {
+		t.Fatalf("OracleRelayDecimals = %d, want 8", cfg.OracleRelayDecimals)
 	}
 }

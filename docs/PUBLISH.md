@@ -101,6 +101,7 @@ Additional required flags by contract:
 | `protocolfeecontroller` | none (`--protocol-fee`, `--protocol-recipient` optional) |
 | `relativequoter` | none |
 | `oraclequoter` | `--base-currency` |
+| `oraclerelay` | `--oracle-relay-writer` (`--oracle-relay-decimals`, `--oracle-relay-description` optional) |
 | `contractregistry` | `--registry-identifiers` |
 | `splitter` | `--splitter-accounts`, `--splitter-allocations` (same length) |
 | `tokenuniquesymbolindex` | none (`--token-index-tokens`, `--token-index-symbols` optional; if both provided, lengths must match) |
@@ -109,6 +110,8 @@ Additional required flags by contract:
 Deterministic factory salt is derived from `erc1967factory.Name()` and packed as caller-address (20 bytes) + name bytes (12 bytes), matching CREATE2 caller-prefix salt requirements. Use `--factory-salt-suffix` (or `FACTORY_SALT_SUFFIX`) to vary deployments while keeping the same derivation scheme.
 
 `--pool-quoter` has no implicit default for `swappool`: pass the hex address of an already deployed RelativeQuoter or OracleQuoter proxy. Values like `relative` or `oracle` are not contract addresses and are rejected before any transaction is sent. The CLI also verifies on-chain code at the factory, implementation, and required SwapPool dependency addresses.
+
+`--oracle-relay-writer` (or `ORACLE_RELAY_WRITER`) has no implicit default and is never derived from `--owner`: the relay's publishing key is a dedicated least-privilege EOA, and the owner is not implicitly a publisher. `--oracle-relay-decimals` defaults to `8` and `--oracle-relay-description` to the empty string; verify both against the source feed's `decimals()` and `description()` before deploying, since neither has a setter afterwards.
 
 `rescuevault` is always deployed directly with `CREATE` (no factory/proxy). Its CREATE address is determined by the deployer address and nonce; `--admin` only changes the constructor argument that controls who may sweep assets.
 
@@ -945,6 +948,7 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | `giftabletoken` | GiftableToken | Yes | `(string,string,uint8,address,uint256)` |
 | `limiter` | Limiter | Yes | `(address)` |
 | `oraclequoter` | OracleQuoter | Yes | `(address,address)` |
+| `oraclerelay` | OracleRelay | Yes | `(address,address,uint8,string)` |
 | `periodsimple` | PeriodSimple | Yes | `(address,address)` |
 | `protocolfeecontroller` | ProtocolFeeController | Yes | `(address,uint256,address)` |
 | `relativequoter` | RelativeQuoter | Yes | `(address)` |
@@ -1049,6 +1053,17 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | `Owner` | `common.Address` | Owner |
 | `BaseCurrency` | `common.Address` | Common quote denomination (metadata only) |
 
+**OracleRelay:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Owner` | `common.Address` | Owner (rotates the writer, invalidates a published round) |
+| `Writer` | `common.Address` | Sole publishing key; required, never defaults to the owner |
+| `Decimals` | `uint8` | Source feed decimals; fixed at initialization, no setter |
+| `Description` | `string` | Source feed pair description; fixed at initialization, no setter |
+
+Only the latest round is stored: `getRoundData` for any round ID other than the current one reverts, as do both read methods before the first publication and after `invalidate`.
+
 **PeriodSimple:**
 
 | Field | Type | Description |
@@ -1087,6 +1102,7 @@ fmt.Printf("Admin of %s: %s\n", proxyAddr, currentAdmin)
 | `giftabletoken.ImplGasLimit` | 2,000,000 | Deploying GiftableToken implementation |
 | `limiter.ImplGasLimit` | 1,000,000 | Deploying Limiter implementation |
 | `oraclequoter.ImplGasLimit` | 1,500,000 | Deploying OracleQuoter implementation |
+| `oraclerelay.ImplGasLimit` | 1,000,000 | Deploying OracleRelay implementation |
 | `periodsimple.ImplGasLimit` | 2,000,000 | Deploying PeriodSimple implementation |
 | `protocolfeecontroller.ImplGasLimit` | 1,000,000 | Deploying ProtocolFeeController implementation |
 | `relativequoter.ImplGasLimit` | 1,000,000 | Deploying RelativeQuoter implementation |
