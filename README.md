@@ -51,7 +51,7 @@ Compiler: Solidity 0.8.36, EVM fork: osaka, optimizer: 200 runs (protocol). Cali
 | SwapRouter | [0x16e3F29dDe22eF75C081A764C4d200Cd48647bcC](https://gnosisscan.io/address/0x16e3F29dDe22eF75C081A764C4d200Cd48647bcC) |
 | RescueVault | [0x3E5D8d8f63c57EA5DD62cF5aeC7212C50bDA69EF](https://gnosisscan.io/address/0x3E5D8d8f63c57EA5DD62cF5aeC7212C50bDA69EF) |
 
-Protocol implementations are published with `scripts/deploy-implementations.sh`.
+Protocol implementations are published with `ge-publish`.
 
 ### Security audit
 

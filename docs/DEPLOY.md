@@ -1,6 +1,6 @@
 # Deploy Guide
 
-This guide covers deploying to Gnosis mainnet. Implementations can also be published with `scripts/deploy-implementations.sh`.
+This guide covers deploying to Gnosis mainnet.
 
 ## Prerequisites
 
