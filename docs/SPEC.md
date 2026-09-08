@@ -18,6 +18,7 @@ Conventions used throughout:
 - [Limiter](#limiter)
 - [RelativeQuoter](#relativequoter)
 - [OracleQuoter](#oraclequoter)
+- [OracleRelay](#oraclerelay)
 - [ProtocolFeeController](#protocolfeecontroller)
 - [DecimalQuoter](#decimalquoter)
 - [SwapRouter](#swaprouter)
@@ -356,6 +357,49 @@ Set `baseCurrency` to the settlement token your pool treats as primary (for exam
 
 ---
 
+## OracleRelay
+
+Single-feed Chainlink `AggregatorV3`-compatible relay. A trusted writer reads one source feed on another chain (for example the Celo `KES / USD` feed) and republishes its latest round on Gnosis, so any consumer expecting `IChainlinkAggregatorV3` can read it.
+
+**Proxy:** Yes (ERC1967)
+
+**Latest-round compatibility only.** The contract stores exactly one round. `latestRoundData()` and `getRoundData(currentRoundId)` return it; every other round ID reverts with `NoRoundData`. This is ABI compatibility, not Chainlink round-history compatibility. A deployment that needs arbitrary historical round IDs needs a separate, more expensive design.
+
+Deploy one relay per source feed. `decimals` and `description` are fixed at initialization and have no setter: changing feed precision or pair identity at a live address would silently reinterpret an unchanged answer. Because the relay never inverts or rescales an answer, choose a source feed whose quote denomination is the one the consumer expects. `OracleQuoter` expects all of its token feeds to share a quote denomination, so a KES token uses the `KES / USD` feed (USD per KES), not a `USD / KES` reciprocal.
+
+**Key Functions:**
+- `initialize(owner, writer, decimals, description)`: `owner` must be non-zero (`NewOwnerIsZeroAddress`) and `writer` must be non-zero (`InvalidWriter`). `decimals == 0` and an empty description are permitted; the deployment preflight, not the contract, confirms the intended source metadata.
+- `decimals()` / `description()` / `version()`: fixed metadata. `version()` returns `1` as the relay implementation version, not the source feed version.
+- `writer()`: the only account allowed to publish.
+- `relayedAt()`: destination block timestamp of the last publication, distinct from the source round `updatedAt`.
+- `hasRoundData()`: whether the stored round is currently serveable.
+- `updateRoundData(roundId, answer, startedAt, updatedAt, answeredInRound)`: writer only (`Access`). Replaces the stored round verbatim and sets `relayedAt` to the current block timestamp.
+- `latestRoundData()` / `getRoundData(roundId)`: return the stored round, or revert with `NoRoundData`.
+- `setWriter(writer)`: owner only. Rejects the zero address. Routine rotation; the last good round stays readable.
+- `invalidate(replacementWriter)`: owner only. Rejects the zero address. Atomically sets the writer and clears the availability flag, so both read methods revert until the replacement publishes. Fail-closed remediation for a compromised writer or a known-bad publication, not a staleness policy.
+- `supportsInterface(id)`: ERC-165 (`0x01ffc9a7`), ERC-173 (`0x7f5828d0`), and `IChainlinkAggregatorV3` (`0x73851258`).
+
+**Constraints:**
+- `updatedAt > block.timestamp` is rejected with `FutureTimestamp`. A future source timestamp would make `OracleQuoter`'s checked freshness subtraction panic and could defeat normal staleness handling. A source timestamp a few seconds ahead of the destination chain is normal: the relayer retries the unchanged tuple once destination time catches up, and must never alter the timestamp to force publication.
+- Nothing else is validated. Zero, negative, stale, repeated, and non-monotonic source rounds are all stored as supplied. A verbatim relay must retain the source data even where a consumer would reject it, and `OracleQuoter` already rejects non-positive and stale answers at consumption time.
+- The contract holds no price, skew, or staleness policy, no cross-chain proof system, and makes no call to the source chain. Source feed address, expected pair, and relayer configuration live in the relayer's deployment configuration.
+
+**Operational notes:**
+- The relay is only as trustworthy as the writer key. Use a dedicated funded EOA, keep `owner` in a multisig, and monitor `RoundDataUpdated`, `WriterUpdated`, and `RoundDataInvalidated`.
+- Do not renounce ownership on a live relay: it permanently removes writer rotation and the invalidation path.
+- Do not attempt to invalidate by publishing `updatedAt = 0`. Use `invalidate`.
+- Set the consuming `OracleQuoter.maxStaleness` to the intended source-data freshness bound.
+
+**Storage layout:** append-only from the first release. Future upgrades must append after the existing metadata and current-round fields, and must not reorder, remove, or retag slots, especially the dynamic `description` field.
+
+**Events:**
+- `Initialized(owner, writer, decimals, description)`
+- `WriterUpdated(oldWriter, newWriter)`
+- `RoundDataUpdated(roundId, answer, startedAt, updatedAt, answeredInRound, relayedAt)`
+- `RoundDataInvalidated(roundId, relayedAt)`
+
+---
+
 ## ProtocolFeeController
 
 Protocol-level fee configuration, consumed by SwapPool. See [SwapPool: Protocol Fee](#swappool) for how the fee is applied.
@@ -664,6 +708,8 @@ Fees and allocations use PPM, where `1_000_000 = 100%`. For example `10_000 = 1%
 
 ### Writer role
 `GiftableToken`, `Limiter`, `CAT`, `AccountsIndex`, and `TokenUniqueSymbolIndex` support a writer role: addresses granted specific write permissions by the owner, without full ownership. In most of these, `isWriter` also returns true for the owner. The exception is `TokenUniqueSymbolIndex`, where `isWriter` is a plain public mapping that reflects only the writer flag.
+
+`OracleRelay` is a deliberate exception to the owner-is-writer convention. It has a single `writer` address and the owner is not implicitly a publisher: an owner call to `updateRoundData` reverts with `Access`. Price publication uses a dedicated least-privilege key, and governance ownership should not be a day-to-day price-setting authority. The owner rotates that key with `setWriter`, or replaces it and fails the feed closed in one call with `invalidate`.
 
 ### Quoter interface
 `RelativeQuoter`, `OracleQuoter`, and `DecimalQuoter` all implement `IQuoter`, which has two methods: `valueFor` (forward, input to output) and `reverseValueFor` (inverse, output to input, rounded up). SwapPool uses `valueFor` for `getAmountOut` and swaps, and `reverseValueFor` for `getAmountIn`, which powers exact-output routing through SwapRouter. The interface guarantees `valueFor(out, in, reverseValueFor(out, in, x)) >= x`.

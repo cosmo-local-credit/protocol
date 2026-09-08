@@ -27,6 +27,7 @@ import (
 	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/giftabletoken"
 	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/limiter"
 	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/oraclequoter"
+	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/oraclerelay"
 	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/periodsimple"
 	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/protocolfeecontroller"
 	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/relativequoter"
@@ -76,6 +77,9 @@ type config struct {
 	TokenIndexSymbols         string
 	SplitterAccounts          string
 	SplitterAllocs            string
+	OracleRelayWriter         string
+	OracleRelayDecimals       uint
+	OracleRelayDescription    string
 }
 
 type report struct {
@@ -165,6 +169,9 @@ func parseFlags(args []string) (config, error) {
 		TokenIndexSymbols:         envOr("TOKEN_INDEX_SYMBOLS", ""),
 		SplitterAccounts:          envOr("SPLITTER_ACCOUNTS", ""),
 		SplitterAllocs:            envOr("SPLITTER_ALLOCATIONS", ""),
+		OracleRelayWriter:         envOr("ORACLE_RELAY_WRITER", ""),
+		OracleRelayDecimals:       uint(envInt64("ORACLE_RELAY_DECIMALS", 8)),
+		OracleRelayDescription:    envOr("ORACLE_RELAY_DESCRIPTION", ""),
 	}
 
 	fs := flag.NewFlagSet("publish-one", flag.ContinueOnError)
@@ -206,6 +213,9 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.TokenIndexSymbols, "token-index-symbols", cfg.TokenIndexSymbols, "comma-separated symbols")
 	fs.StringVar(&cfg.SplitterAccounts, "splitter-accounts", cfg.SplitterAccounts, "comma-separated splitter accounts")
 	fs.StringVar(&cfg.SplitterAllocs, "splitter-allocations", cfg.SplitterAllocs, "comma-separated splitter allocations")
+	fs.StringVar(&cfg.OracleRelayWriter, "oracle-relay-writer", cfg.OracleRelayWriter, "OracleRelay writer address (required for oraclerelay)")
+	fs.UintVar(&cfg.OracleRelayDecimals, "oracle-relay-decimals", cfg.OracleRelayDecimals, "OracleRelay feed decimals")
+	fs.StringVar(&cfg.OracleRelayDescription, "oracle-relay-description", cfg.OracleRelayDescription, "OracleRelay feed description")
 
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
@@ -416,6 +426,14 @@ func runOne(ctx context.Context, d *publish.Deployer, cfg config, owner, admin, 
 		}
 		return runOneProxied(ctx, d, cfg, out, "oraclequoter", "OracleQuoter", oraclequoter.Bytecode(), oraclequoter.ImplGasLimit, admin, func() ([]byte, error) {
 			return oraclequoter.EncodeInit(oraclequoter.InitArgs{Owner: owner, BaseCurrency: baseCurrency})
+		})
+	case "oraclerelay":
+		relayArgs, err := oracleRelayInitArgs(cfg, owner)
+		if err != nil {
+			return err
+		}
+		return runOneProxied(ctx, d, cfg, out, "oraclerelay", "OracleRelay", oraclerelay.Bytecode(), oraclerelay.ImplGasLimit, admin, func() ([]byte, error) {
+			return oraclerelay.EncodeInit(relayArgs)
 		})
 	case "periodsimple":
 		return runOneProxied(ctx, d, cfg, out, "periodsimple", "PeriodSimple", periodsimple.Bytecode(), periodsimple.ImplGasLimit, admin, func() ([]byte, error) {
@@ -716,6 +734,8 @@ func contractBytecode(contract string, admin common.Address) ([]byte, uint64, er
 		return limiter.Bytecode(), limiter.ImplGasLimit, nil
 	case "oraclequoter":
 		return oraclequoter.Bytecode(), oraclequoter.ImplGasLimit, nil
+	case "oraclerelay":
+		return oraclerelay.Bytecode(), oraclerelay.ImplGasLimit, nil
 	case "periodsimple":
 		return periodsimple.Bytecode(), periodsimple.ImplGasLimit, nil
 	case "protocolfeecontroller", "pfc":
@@ -922,6 +942,30 @@ func runDeployProxy(cfg config) error {
 	return nil
 }
 
+// oracleRelayInitArgs resolves the relay initializer inputs. The writer is a
+// dedicated least-privilege publishing key and never defaults to the owner.
+func oracleRelayInitArgs(cfg config, owner common.Address) (oraclerelay.InitArgs, error) {
+	if strings.TrimSpace(cfg.OracleRelayWriter) == "" {
+		return oraclerelay.InitArgs{}, errors.New("--oracle-relay-writer is required for oraclerelay")
+	}
+	writer, err := parseAddress(cfg.OracleRelayWriter)
+	if err != nil {
+		return oraclerelay.InitArgs{}, err
+	}
+	if writer == (common.Address{}) {
+		return oraclerelay.InitArgs{}, errors.New("--oracle-relay-writer must not be the zero address")
+	}
+	if cfg.OracleRelayDecimals > 255 {
+		return oraclerelay.InitArgs{}, fmt.Errorf("--oracle-relay-decimals must be at most 255, got %d", cfg.OracleRelayDecimals)
+	}
+	return oraclerelay.InitArgs{
+		Owner:       owner,
+		Writer:      writer,
+		Decimals:    uint8(cfg.OracleRelayDecimals),
+		Description: cfg.OracleRelayDescription,
+	}, nil
+}
+
 func encodeInitFor(contract string, cfg config, owner, admin, feeAddress, protocolRecipient, periodPoker, baseCurrency common.Address) ([]byte, error) {
 	var err error
 	switch strings.ToLower(strings.TrimSpace(contract)) {
@@ -952,6 +996,12 @@ func encodeInitFor(contract string, cfg config, owner, admin, feeAddress, protoc
 			return nil, errors.New("--base-currency is required for oraclequoter")
 		}
 		return oraclequoter.EncodeInit(oraclequoter.InitArgs{Owner: owner, BaseCurrency: baseCurrency})
+	case "oraclerelay":
+		relayArgs, err := oracleRelayInitArgs(cfg, owner)
+		if err != nil {
+			return nil, err
+		}
+		return oraclerelay.EncodeInit(relayArgs)
 	case "periodsimple":
 		return periodsimple.EncodeInit(periodsimple.InitArgs{Owner: owner, Poker: periodPoker})
 	case "protocolfeecontroller", "pfc":

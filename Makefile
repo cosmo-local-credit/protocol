@@ -2,7 +2,7 @@ FORGE_OUT := out
 CONTRACTS := ERC1967Factory GiftableToken SwapPool Limiter FeePolicy \
 				RelativeQuoter ProtocolFeeController DecimalQuoter Splitter \
 				EthFaucet PeriodSimple TokenUniqueSymbolIndex ContractRegistry AccountsIndex CAT OracleQuoter \
-				RescueVault
+				OracleRelay RescueVault
 
 ERC1967Factory_DIR           := pkg/publish/contracts/erc1967factory
 GiftableToken_DIR            := pkg/publish/contracts/giftabletoken
@@ -20,6 +20,7 @@ ContractRegistry_DIR          := pkg/publish/contracts/contractregistry
 AccountsIndex_DIR            := pkg/publish/contracts/accountsindex
 CAT_DIR                     := pkg/publish/contracts/cat
 OracleQuoter_DIR            := pkg/publish/contracts/oraclequoter
+OracleRelay_DIR             := pkg/publish/contracts/oraclerelay
 RescueVault_DIR             := pkg/publish/contracts/rescuevault
 
 .PHONY: all build artifacts clean test

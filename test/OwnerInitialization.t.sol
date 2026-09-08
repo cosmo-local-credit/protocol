@@ -12,6 +12,7 @@ import {FeePolicy} from "../src/FeePolicy.sol";
 import {GiftableToken} from "../src/GiftableToken.sol";
 import {Limiter} from "../src/Limiter.sol";
 import {OracleQuoter} from "../src/OracleQuoter.sol";
+import {OracleRelay} from "../src/OracleRelay.sol";
 import {PeriodSimple} from "../src/PeriodSimple.sol";
 import {ProtocolFeeController} from "../src/ProtocolFeeController.sol";
 import {RelativeQuoter} from "../src/RelativeQuoter.sol";
@@ -68,6 +69,12 @@ contract OwnerInitializationTest is Test {
         OracleQuoter instance = OracleQuoter(LibClone.clone(address(new OracleQuoter())));
         vm.expectRevert(ZERO_OWNER);
         instance.initialize(address(0), address(1));
+    }
+
+    function test_oracleRelay_rejectsZeroOwner() public {
+        OracleRelay instance = OracleRelay(LibClone.clone(address(new OracleRelay())));
+        vm.expectRevert(ZERO_OWNER);
+        instance.initialize(address(0), address(1), 8, "KES / USD");
     }
 
     function test_periodSimple_rejectsZeroOwner() public {

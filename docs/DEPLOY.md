@@ -61,6 +61,7 @@ Implementations are plain `CREATE` contracts — no factory involved. Deploy eac
 ./ge-publish deploy-impl --contract giftabletoken        $BASE
 ./ge-publish deploy-impl --contract limiter              $BASE
 ./ge-publish deploy-impl --contract oraclequoter         $BASE
+./ge-publish deploy-impl --contract oraclerelay          $BASE
 ./ge-publish deploy-impl --contract periodsimple         $BASE
 ./ge-publish deploy-impl --contract pfc                  $BASE
 ./ge-publish deploy-impl --contract relativequoter       $BASE
@@ -149,6 +150,7 @@ forge verify-contract $IMPL_FEEPOLICY            src/FeePolicy.sol:FeePolicy    
 forge verify-contract $IMPL_GIFTABLETOKEN        src/GiftableToken.sol:GiftableToken                $VERIFY
 forge verify-contract $IMPL_LIMITER              src/Limiter.sol:Limiter                            $VERIFY
 forge verify-contract $IMPL_ORACLEQUOTER         src/OracleQuoter.sol:OracleQuoter                  $VERIFY
+forge verify-contract $IMPL_ORACLERELAY          src/OracleRelay.sol:OracleRelay                    $VERIFY
 forge verify-contract $IMPL_PERIODSIMPLE         src/PeriodSimple.sol:PeriodSimple                  $VERIFY
 forge verify-contract $IMPL_PFC                  src/ProtocolFeeController.sol:ProtocolFeeController $VERIFY
 forge verify-contract $IMPL_RELATIVEQUOTER       src/RelativeQuoter.sol:RelativeQuoter              $VERIFY
@@ -230,6 +232,57 @@ cast send $ORACLEQUOTER_PROXY \
   "setOracle(address,address)" $TOKEN_ADDRESS $CHAINLINK_FEED_ADDRESS \
   --rpc-url $RPC_URL --private-key $PRIVATE_KEY
 ```
+
+### OracleRelay
+
+One relay per source feed. `--oracle-relay-writer` is required and never defaults to `--owner`: publication uses a dedicated least-privilege key.
+
+Preflight the metadata against the source feed before deploying. Read it from the source chain RPC and use exactly those values:
+
+```bash
+cast call $CELO_FEED "decimals()(uint8)"       --rpc-url $CELO_RPC_URL   # expect 8
+cast call $CELO_FEED "description()(string)"   --rpc-url $CELO_RPC_URL   # expect "KES / USD"
+```
+
+The relay never inverts or rescales an answer, so the source feed's quote denomination must be the one the consumer expects: a KES token needs `KES / USD` (USD per KES), not a `USD / KES` reciprocal.
+
+```bash
+./ge-publish deploy-proxy --contract oraclerelay $BASE \
+  --factory-address $FACTORY --impl-address $IMPL_ORACLERELAY --owner $OWNER --admin $ADMIN \
+  --oracle-relay-writer $RELAY_WRITER \
+  --oracle-relay-decimals 8 \
+  --oracle-relay-description "KES / USD"
+```
+
+Publish a round as the writer, copying the source `latestRoundData()` tuple verbatim. `updatedAt` must not be later than the destination block timestamp; if the source is a few seconds ahead, retry the unchanged tuple rather than altering the timestamp.
+
+```bash
+cast send $ORACLERELAY_PROXY \
+  "updateRoundData(uint80,int256,uint256,uint256,uint80)" \
+  $ROUND_ID $ANSWER $STARTED_AT $UPDATED_AT $ANSWERED_IN_ROUND \
+  --rpc-url $RPC_URL --private-key $RELAY_WRITER_KEY
+```
+
+Rotate the writer, keeping the last good round readable (as owner):
+```bash
+cast send $ORACLERELAY_PROXY "setWriter(address)" $NEW_WRITER \
+  --rpc-url $RPC_URL --private-key $PRIVATE_KEY
+```
+
+Fail the feed closed after a writer compromise or a known-bad publication. This rotates the writer and makes both read methods revert in one call, until the replacement publishes again (as owner):
+```bash
+cast send $ORACLERELAY_PROXY "invalidate(address)" $REPLACEMENT_WRITER \
+  --rpc-url $RPC_URL --private-key $PRIVATE_KEY
+```
+
+Wire the relay into a quoter like any other Chainlink feed, and set the freshness bound to the intended source-data freshness:
+```bash
+cast send $ORACLEQUOTER_PROXY \
+  "setOracle(address,address,uint256)" $KES_TOKEN $ORACLERELAY_PROXY 3600 \
+  --rpc-url $RPC_URL --private-key $PRIVATE_KEY
+```
+
+Only the latest round is stored. `getRoundData` for any other round ID reverts with `NoRoundData`. Do not renounce ownership: it permanently removes writer rotation and invalidation.
 
 ### GiftableToken
 
@@ -399,6 +452,7 @@ Each proxy must be upgraded individually — there is no batch upgrade. Repeat s
 | FeePolicy | 1,000,000 |
 | Limiter | 1,000,000 |
 | OracleQuoter | 1,500,000 |
+| OracleRelay | 1,000,000 |
 | ProtocolFeeController | 1,000,000 |
 | RelativeQuoter | 1,000,000 |
 | Splitter | 5,000,000 |
