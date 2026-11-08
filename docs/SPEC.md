@@ -40,6 +40,7 @@ ERC20 token with minting, optional expiry, and a writer role for delegated minti
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(name, symbol, decimals, owner, expiresAt)`: `expiresAt = 0` means the token never expires.
 - `mintTo(to, amount)`: mint tokens. Owner or writer only.
 - `burn(amount)`: burn from the caller's own balance. Owner only. Reverts with `InsufficientBalance` if the balance is too low.
@@ -48,11 +49,13 @@ ERC20 token with minting, optional expiry, and a writer role for delegated minti
 - `isWriter(address)`: returns true for writers and for the owner.
 
 **Behaviour:**
+
 - Once expired, every transfer (including mint) reverts with `TokenExpired`.
 - Expiry flips automatically on the first transfer at or after `block.timestamp >= expiresAt`, or explicitly via `applyExpiry()`.
 - `expired`, `totalMinted`, and `totalBurned` are public state variables.
 
 **Events:**
+
 - `Mint(minter, beneficiary, value)`
 - `Burn(from, value)`
 - `Expired(timestamp)`
@@ -67,6 +70,7 @@ Automated market maker for token swaps, with configurable fees, deposit limits, 
 **Proxy:** Yes (ERC1967)
 
 **Storage:**
+
 - `tokenRegistry`: optional token whitelist. When unset, any token is allowed.
 - `tokenLimiter`: optional per-token deposit cap. When unset, deposits are uncapped.
 - `quoter`: price quoter for swap math. When unset, swaps are 1:1.
@@ -78,26 +82,31 @@ Automated market maker for token swaps, with configurable fees, deposit limits, 
 - `sealState`: bitmask of configuration fields that are permanently locked.
 
 **Constants:**
+
 - `PPM = 1_000_000` (100%).
 - `DEFAULT_FEE_PPM = 10_000` (1%): the fee floor used in protocol fee calculation.
 
 **Key Functions**
 
 Liquidity:
+
 - `initialize(name, symbol, decimals, owner, feePolicy, feeAddress, tokenRegistry, tokenLimiter, quoter, feesDecoupled, protocolFeeController)`: one-time setup.
-- `deposit(token, value)`: add liquidity. Transfers `value` of `token` from the caller into the pool, measures the balance delta, and returns and emits the amount actually received. Reverts with `TransferFailed` if the pool received nothing.
+- `deposit(token, value)`: Deprecated. Reverts with `Deprecated()`.Standalone direct deposits are disabled to prevent cap saturation griefing. Liquidity enters through `swap` or direct transfer.
 - `withdrawLiquidity(token, to, amount)`: owner-only emergency withdrawal of pool liquidity. In decoupled mode, accrued `fees[token]` are reserved and cannot be withdrawn through this path. The recipient must be non-zero. Use a timelock or multisig owner.
 
 Swapping. All three return the net amount transferred to the recipient. `tokenIn` and `tokenOut` must differ.
+
 - `withdraw(tokenOut, tokenIn, value)`: swap `value` of `tokenIn` for `tokenOut`. Output goes to `msg.sender`.
 - `withdraw(tokenOut, tokenIn, value, recipient)`: same swap, output goes to `recipient`. Reverts with `InvalidRecipient` if `recipient` is the zero address.
 - `withdraw(tokenOut, tokenIn, value, recipient, minAmountOut, deadline)`: bounded swap. Reverts with `Expired` if `block.timestamp > deadline`, and with `InsufficientOutput` if the recipient's observed balance increase is below `minAmountOut`. Integrators should prefer this form: the executed price is read from `quoter` and `feePolicy` at execution time, so an unbounded swap has no protection against a price move between quoting and settlement.
 
 Fee collection (owner only):
+
 - `withdraw(tokenOut)`: send all accumulated pool fees for `tokenOut` to `feeAddress`.
 - `withdraw(tokenOut, value)`: send a specific `value` of accumulated pool fees for `tokenOut` to `feeAddress`.
 
 Configuration (owner only):
+
 - `seal(state)`: permanently lock one or more configuration fields (bitmask). Reverts with `AlreadyLocked` if a bit is already set, and with `InvalidState` if `state > maxSealState` or if the mask names required configuration that is still unset — `FEEADDRESS_STATE` with `feeAddress` unset, `REGISTRY_STATE` with `tokenRegistry` unset, or `LIMITER_STATE` with `tokenLimiter` unset. Configure those fields before sealing them; sealing a zero fee beneficiary would make accrued fees uncollectible, while sealing an unset gate would freeze the pool as permanently ungated.
 - `setFeePolicy(address)`: reverts with `Sealed` if `FEE_STATE` is sealed.
 - `setFeeAddress(address)`: reverts with `Sealed` if `FEEADDRESS_STATE` is sealed.
@@ -106,6 +115,7 @@ Configuration (owner only):
 - `setTokenLimiter(address)`: reverts with `Sealed` if `LIMITER_STATE` is sealed.
 
 Queries:
+
 - `isSealed(state)`: pass a seal bit or combination (1, 2, 4, 8, 16, or 31) to check if those fields are locked, or pass `0` to check if the pool is fully sealed under `fullSealMask`. Reverts with `InvalidState` if `state > maxSealState`.
 - `getQuote(tokenOut, tokenIn, value)`: raw quoted output from the quoter, before any fees.
 - `getFee(inToken, outToken, value)`: pool fee amount for a given quoted value.
@@ -116,14 +126,14 @@ Queries:
 
 Seal is a bitmask. Each bit permanently locks one field. Bits can only be set, never cleared.
 
-| Constant | Value | Locks |
-|---|---|---|
-| `FEE_STATE` | 1 | `feePolicy` (via `setFeePolicy`) |
-| `FEEADDRESS_STATE` | 2 | `feeAddress` (via `setFeeAddress`) |
-| `QUOTER_STATE` | 4 | `quoter` (via `setQuoter`) |
-| `REGISTRY_STATE` | 8 | `tokenRegistry` (via `setTokenRegistry`) |
-| `LIMITER_STATE` | 16 | `tokenLimiter` (via `setTokenLimiter`) |
-| `maxSealState` | 31 | all five fields (fully sealed) |
+| Constant           | Value | Locks                                    |
+| ------------------ | ----- | ---------------------------------------- |
+| `FEE_STATE`        | 1     | `feePolicy` (via `setFeePolicy`)         |
+| `FEEADDRESS_STATE` | 2     | `feeAddress` (via `setFeeAddress`)       |
+| `QUOTER_STATE`     | 4     | `quoter` (via `setQuoter`)               |
+| `REGISTRY_STATE`   | 8     | `tokenRegistry` (via `setTokenRegistry`) |
+| `LIMITER_STATE`    | 16    | `tokenLimiter` (via `setTokenLimiter`)   |
+| `maxSealState`     | 31    | all five fields (fully sealed)           |
 
 `fullSealMask` is written to `maxSealState` at `initialize` and frozen there. `isSealed(0)` compares against that stored mask, not the compiled constant, so adding a seal bit in a later implementation does not silently unseal existing pools. Sealing an address locks the slot, not the callee: a sealed `quoter` or `feePolicy` can still change its own rates. Seal is only a commitment when the ERC1967 proxy admin is a different, more conservative principal than the owner — `ge-publish` requires `--admin` and rejects `admin == owner`.
 
@@ -156,6 +166,7 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 - `feesDecoupled = true`: collected fees are tracked separately. Available liquidity for a swap is `balance - fees[token]`, and the `InsufficientBalance` check uses this reduced figure.
 
 **Validation:**
+
 - The token must pass the registry `have(token)` check, if `tokenRegistry` is set.
 - Both `tokenIn` and `tokenOut` must pass the registry check for a swap; de-listing therefore stops entry and exit through the trading path.
 - A deposit must not push the pool balance above the limiter cap, if `tokenLimiter` is set. Note that a limit of `0` blocks all deposits (see [Limiter](#limiter)).
@@ -165,6 +176,7 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 - `recipient` must be non-zero for the 4-argument `withdraw`.
 
 **Errors:**
+
 - `InvalidRecipient`: the `recipient` argument is the zero address.
 - `InvalidToken`: `tokenIn` and `tokenOut` are the same token.
 - `Expired`: the bounded swap's `deadline` has passed.
@@ -183,6 +195,7 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 - `InvalidState`: a seal bitmask argument is out of range.
 
 **Events:**
+
 - `Deposit(initiator, tokenIn, amountIn)`: emitted whenever tokens enter the pool. This fires on an explicit `deposit()` call and also at the start of every swap, because a swap deposits `tokenIn` first. `amountIn` is the measured balance delta, not the requested amount. Expect a `Deposit` immediately before each `Swap`.
 - `Swap(initiator, tokenIn, tokenOut, amountIn, amountOut, fee)`: emitted on every swap. `initiator` is always `msg.sender`. `amountIn` is the amount the pool received and `amountOut` is the recipient's observed balance increase. `fee` is the pool fee only.
 - `SwapSettlement(initiator, tokenIn, tokenOut, amountIn, quotedAmountOut, nominalAmountOut, amountOut, poolFee, protocolFee)`: detailed settlement event. It exposes the quote, both fees, the nominal transfer and the recipient's observed balance increase; the last two differ for fee-on-transfer output tokens.
@@ -198,6 +211,7 @@ Distributes an ETH or ERC20 balance among a fixed set of recipients by percentag
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner, accounts, percentAllocations)`: set the recipients and their shares.
 - `updateSplit(accounts, percentAllocations)`: replace recipients and shares. Owner only.
 - `distributeETH(accounts, percentAllocations)`: distribute the contract's available ETH according to accumulated fractional entitlements. Permissionless.
@@ -205,10 +219,12 @@ Distributes an ETH or ERC20 balance among a fixed set of recipients by percentag
 - `getHash()`: returns `keccak256(abi.encodePacked(accounts, percentAllocations))`, the commitment stored at init or last update.
 
 **How to use:**
+
 1. Send ETH or tokens to the contract (it accepts ETH via `receive()`).
 2. Call `distributeETH` or `distributeERC20`, passing the exact same `accounts` and `percentAllocations` used in `initialize` or `updateSplit`.
 
 **Rules:**
+
 - The passed arrays must hash to the stored split, or the call reverts with `InvalidHash`. Only the hash is stored on-chain, so callers must supply the full arrays each time.
 - Allocations are in PPM and must sum to exactly `1_000_000`. The sum is accumulated in `uint256` and each individual allocation must be at most `1_000_000`, so the total cannot wrap.
 - At least 2 recipients. No duplicate, zero, or self-recipient addresses. No zero allocations.
@@ -216,6 +232,7 @@ Distributes an ETH or ERC20 balance among a fixed set of recipients by percentag
 - An empty balance is a no-op, not a revert.
 
 **Errors:**
+
 - `TooFewAccounts`, `AccountsAndAllocationsMismatch`, `InvalidAllocationsSum`, `DuplicateAccount`, `AllocationMustBePositive`, `InvalidRecipient`, `InvalidHash`.
 
 ---
@@ -227,6 +244,7 @@ Per-pair or default swap fee configuration, consumed by SwapPool.
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner, defaultFee)`: fee in PPM. Reverts with `InvalidFee` if `defaultFee > PPM`.
 - `getFee(tokenIn, tokenOut)`: returns the pair-specific fee if one is set, otherwise `defaultFee`.
 - `getDefaultFee()`: returns the current default fee.
@@ -240,6 +258,7 @@ Per-pair or default swap fee configuration, consumed by SwapPool.
 A pair fee of `0` is treated as unset. `getFee` and `calculateFee` fall back to `defaultFee` when a pair's stored fee is `0`. You cannot set a pair to a literal zero fee; use `removePairFee` to clear an override instead.
 
 **Events:**
+
 - `DefaultFeeUpdated(oldFee, newFee)`
 - `PairFeeUpdated(tokenIn, tokenOut, oldFee, newFee)`
 - `PairFeeRemoved(tokenIn, tokenOut)`
@@ -253,6 +272,7 @@ Per-token, per-holder maximum balance caps. SwapPool enforces these on deposit.
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner)`
 - `limitOf(token, holder)`: returns the cap. A value of `0` means no cap has been set, which SwapPool treats as "block all deposits".
 - `setLimitFor(token, holder, value)`: owner or writer only. `holder` must be a deployed contract.
@@ -263,6 +283,7 @@ Per-token, per-holder maximum balance caps. SwapPool enforces these on deposit.
 `setLimitFor` rejects externally owned accounts (`InvalidHolder`) by checking `extcodesize`. Because `extcodesize` reads as `0` during a contract's own constructor, you cannot set a limit for a contract in the same transaction that deploys it. Set the limit in a later transaction.
 
 **Events:**
+
 - `LimitSet(token, holder, value)`
 - `WriterAdded(writer)` / `WriterRemoved(writer)`
 
@@ -275,6 +296,7 @@ Price quoter using per-token exchange rates expressed relative to a common unit.
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner)`
 - `setPriceIndexValue(token, exchangeRate)`: set a token's rate in PPM. Owner only. Tokens with no rate set default to `PPM` (rate 1.0).
 - `valueFor(outToken, inToken, value)`: forward quote (input to output).
@@ -285,14 +307,17 @@ Price quoter using per-token exchange rates expressed relative to a common unit.
 The quoter combines the decimal difference and exchange-rate conversion before
 rounding, so cross-decimal quotes do not discard input precision before applying
 the rate:
+
 ```
 outValue = adjustedValue * inExchangeRate / outExchangeRate
 ```
+
 where `adjustedValue = value / 10^(inDecimals - outDecimals)` if `inDecimals > outDecimals`, or `value * 10^(outDecimals - inDecimals)` if `outDecimals > inDecimals`.
 
 Two tokens both at the default rate trade 1:1, adjusted for decimals.
 
 **Events:**
+
 - `PriceIndexUpdated(tokenAddress, exchangeRate)`
 
 ---
@@ -304,6 +329,7 @@ Price quoter using Chainlink oracle feeds.
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner, baseCurrency)`: `baseCurrency` must be non-zero. It is metadata only and does not affect pricing. It records the common quote denomination for operators.
 - `setOracle(token, oracleAddress)`: map a token to its Chainlink `AggregatorV3` feed and use the global freshness bound. Owner only.
 - `setOracle(token, oracleAddress, maxStaleness)`: map a token and its feed-specific freshness bound atomically. A zero bound uses the global fallback.
@@ -314,16 +340,19 @@ Price quoter using Chainlink oracle feeds.
 - `reverseValueFor(outToken, inToken, value)`: inverse of `valueFor`, rounded up. SwapPool uses this for `getAmountIn`.
 
 **Calculation:**
+
 ```
 rawOutput = value * inRate * 10^outTokenDecimals * 10^outOracleDecimals
              / (outRate * 10^inTokenDecimals * 10^inOracleDecimals)
 outValue  = rawOutput * effectiveMultiplier / 1_000_000
 ```
+
 where `effectiveMultiplier` is `multiplier` if set, otherwise `1_000_000` (no adjustment).
 
 All four decimal adjustments are applied, so feeds with different precisions (for example 8-decimal USD feeds against 18-decimal Celo feeds) compose correctly.
 
 **Constraints:**
+
 - Both tokens must have oracles configured, otherwise the call reverts with `OracleNotSet(token)`.
 - The price must be positive (`InvalidOraclePrice`) and no older than the token's feed-specific freshness bound, or global `maxStaleness` when no override is set (`StaleOraclePrice`).
 - There are no fallback rates. Any missing or failing oracle call reverts.
@@ -334,18 +363,19 @@ Map each token to a Chainlink feed in the same quote denomination (for example, 
 
 Example: a pool supporting `MBUNI` (KES-pegged), `USDT`, `cUSD`, and `SANTOS` (BRL-pegged) on Celo:
 
-| Token | Feed | Feed address |
-|---|---|---|
-| `MBUNI` | `KES / USD` | `0x0826492a24b1dBd1d8fcB4701b38C557CE685e9D` |
-| `USDT` | `USDT / USD` | `0x5e37AF40A7A344ec9b03CCD34a250F3dA9a20B02` |
-| `cUSD` | `CUSD / USD` | `0xe38A27BE4E7d866327e09736F3C570F256FFd048` |
-| `SANTOS` | `BRL / USD` | `0xe8EcaF727080968Ed5F6DBB595B91e50eEb9F8B3` |
+| Token    | Feed         | Feed address                                 |
+| -------- | ------------ | -------------------------------------------- |
+| `MBUNI`  | `KES / USD`  | `0x0826492a24b1dBd1d8fcB4701b38C557CE685e9D` |
+| `USDT`   | `USDT / USD` | `0x5e37AF40A7A344ec9b03CCD34a250F3dA9a20B02` |
+| `cUSD`   | `CUSD / USD` | `0xe38A27BE4E7d866327e09736F3C570F256FFd048` |
+| `SANTOS` | `BRL / USD`  | `0xe8EcaF727080968Ed5F6DBB595B91e50eEb9F8B3` |
 
 With this mapping the quoter can price any combination: `KES -> cUSD`, `BRL -> KES`, `KES -> KES` (two different KES-pegged tokens, 1:1), `USDT -> cUSD`, and so on.
 
 Set `baseCurrency` to the settlement token your pool treats as primary (for example `cUSD`). It is stored as metadata and emitted in `Initialized`, and does not affect `valueFor` pricing.
 
 **Events:**
+
 - `Initialized(owner, baseCurrency)`
 - `OracleUpdated(token, oracle)`
 - `OracleMaxStalenessUpdated(token, maxStaleness)`
@@ -368,6 +398,7 @@ Single-feed Chainlink `AggregatorV3`-compatible relay. A trusted writer reads on
 Deploy one relay per source feed. `decimals` and `description` are fixed at initialization and have no setter: changing feed precision or pair identity at a live address would silently reinterpret an unchanged answer. Because the relay never inverts or rescales an answer, choose a source feed whose quote denomination is the one the consumer expects. `OracleQuoter` expects all of its token feeds to share a quote denomination, so a KES token uses the `KES / USD` feed (USD per KES), not a `USD / KES` reciprocal.
 
 **Key Functions:**
+
 - `initialize(owner, writer, decimals, description)`: `owner` must be non-zero (`NewOwnerIsZeroAddress`) and `writer` must be non-zero (`InvalidWriter`). `decimals == 0` and an empty description are permitted; the deployment preflight, not the contract, confirms the intended source metadata.
 - `decimals()` / `description()` / `version()`: fixed metadata. `version()` returns `1` as the relay implementation version, not the source feed version.
 - `writer()`: the only account allowed to publish.
@@ -380,11 +411,13 @@ Deploy one relay per source feed. `decimals` and `description` are fixed at init
 - `supportsInterface(id)`: ERC-165 (`0x01ffc9a7`), ERC-173 (`0x7f5828d0`), and `IChainlinkAggregatorV3` (`0x73851258`).
 
 **Constraints:**
+
 - `updatedAt > block.timestamp` is rejected with `FutureTimestamp`. A future source timestamp would make `OracleQuoter`'s checked freshness subtraction panic and could defeat normal staleness handling. A source timestamp a few seconds ahead of the destination chain is normal: the relayer retries the unchanged tuple once destination time catches up, and must never alter the timestamp to force publication.
 - Nothing else is validated. Zero, negative, stale, repeated, and non-monotonic source rounds are all stored as supplied. A verbatim relay must retain the source data even where a consumer would reject it, and `OracleQuoter` already rejects non-positive and stale answers at consumption time.
 - The contract holds no price, skew, or staleness policy, no cross-chain proof system, and makes no call to the source chain. Source feed address, expected pair, and relayer configuration live in the relayer's deployment configuration.
 
 **Operational notes:**
+
 - The relay is only as trustworthy as the writer key. Use a dedicated funded EOA, keep `owner` in a multisig, and monitor `RoundDataUpdated`, `WriterUpdated`, and `RoundDataInvalidated`.
 - Do not renounce ownership on a live relay: it permanently removes writer rotation and the invalidation path.
 - Do not attempt to invalidate by publishing `updatedAt = 0`. Use `invalidate`.
@@ -393,6 +426,7 @@ Deploy one relay per source feed. `decimals` and `description` are fixed at init
 **Storage layout:** append-only from the first release. Future upgrades must append after the existing metadata and current-round fields, and must not reorder, remove, or retag slots, especially the dynamic `description` field.
 
 **Events:**
+
 - `Initialized(owner, writer, decimals, description)`
 - `WriterUpdated(oldWriter, newWriter)`
 - `RoundDataUpdated(roundId, answer, startedAt, updatedAt, answeredInRound, relayedAt)`
@@ -407,6 +441,7 @@ Protocol-level fee configuration, consumed by SwapPool. See [SwapPool: Protocol 
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner, initialFee, initialRecipient)`: fee in PPM. `initialRecipient` must be non-zero. Starts active.
 - `getProtocolFee()`: returns the fee in PPM, or `0` if inactive.
 - `getProtocolFeeRecipient()`: returns the recipient address.
@@ -416,6 +451,7 @@ Protocol-level fee configuration, consumed by SwapPool. See [SwapPool: Protocol 
 - `setActive(bool)`: owner only. Disabling makes `getProtocolFee()` return `0`, which switches the protocol fee off in SwapPool without changing the stored rate.
 
 **Events:**
+
 - `ProtocolFeeUpdated(oldFee, newFee)`
 - `ProtocolFeeRecipientUpdated(oldRecipient, newRecipient)`
 - `ActiveStateUpdated(active)`
@@ -429,6 +465,7 @@ Stateless quoter that only normalises for decimal differences. It assumes 1:1 va
 **Proxy:** No (stateless, deploy once)
 
 **Key Functions:**
+
 - `valueFor(outToken, inToken, value)`: scales `value` from `inToken` decimals to `outToken` decimals.
 - `reverseValueFor(outToken, inToken, value)`: inverse of `valueFor`, rounded up. SwapPool uses this for `getAmountIn`.
 
@@ -443,6 +480,7 @@ Stateless multi-hop quoter that computes input and output amounts across a path 
 **Proxy:** No (stateless, deploy once)
 
 **Struct:**
+
 ```solidity
 struct Hop {
     address pool;      // SwapPool address
@@ -452,16 +490,19 @@ struct Hop {
 ```
 
 **Key Functions:**
+
 - `quoteExactInput(Hop[] path, uint256 amountIn) -> uint256 amountOut`: given an input amount, compute the final output after all hops.
 - `quoteExactOutput(Hop[] path, uint256 amountOut) -> uint256 amountIn`: given a desired output, compute the required input across all hops.
 
 **Errors:**
+
 - `EmptyPath`: the `path` array is empty.
 - Any error raised by a pool on the path. Since `getAmountOut` and `getAmountIn` revert rather than reporting a zero-output or out-of-domain quote, a route containing such a hop makes the whole quote revert instead of returning `0`.
 
 **How it works:**
 
 `quoteExactInput` iterates forward. For each hop it calls `pool.getAmountOut(tokenOut, tokenIn, currentAmount)` and feeds the result into the next hop:
+
 ```
 Hop 0: amountOut = poolA.getAmountOut(tokenOut, tokenIn, amountIn)
 Hop 1: amountOut = poolB.getAmountOut(tokenOut, tokenIn, amountOut from hop 0)
@@ -469,6 +510,7 @@ Hop 1: amountOut = poolB.getAmountOut(tokenOut, tokenIn, amountOut from hop 0)
 ```
 
 `quoteExactOutput` iterates backward from the last hop. For each hop it calls `pool.getAmountIn(tokenOut, tokenIn, currentAmount)` and feeds the result into the previous hop:
+
 ```
 Hop N-1: amountIn = poolB.getAmountIn(tokenOut, tokenIn, desiredAmountOut)
 Hop N-2: amountIn = poolA.getAmountIn(tokenOut, tokenIn, amountIn from hop N-1)
@@ -480,6 +522,7 @@ Hop N-2: amountIn = poolA.getAmountIn(tokenOut, tokenIn, amountIn from hop N-1)
 **Usage examples:**
 
 Single-hop quote (USDT to HAVANA via poolA):
+
 ```solidity
 SwapRouter.Hop[] memory path = new SwapRouter.Hop[](1);
 path[0] = SwapRouter.Hop(poolA, usdt, havana);
@@ -492,6 +535,7 @@ uint256 amountIn = router.quoteExactOutput(path, 99e6);
 ```
 
 Multi-hop quote (USDT to HAVANA to TUKTUK via poolA then poolB):
+
 ```solidity
 SwapRouter.Hop[] memory path = new SwapRouter.Hop[](2);
 path[0] = SwapRouter.Hop(poolA, usdt, havana);
@@ -515,6 +559,7 @@ Native ETH faucet gated by a whitelist and a cooldown. Both gates are mandatory:
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner, amount)`: set the owner and the ETH amount paid per claim.
 - `gimme()`: claim ETH for the caller.
 - `giveTo(recipient)`: claim ETH on behalf of another address.
@@ -533,6 +578,7 @@ Native ETH faucet gated by a whitelist and a cooldown. Both gates are mandatory:
 **Payout note:** claims pay out with a plain `transfer`, which forwards only 2300 gas. A contract recipient with a costly `receive`/`fallback` will cause the claim to revert.
 
 **External interfaces expected:**
+
 - `registry.have(address) -> bool`: whitelist check. Claims revert with `RegistryBackend` when `registry` is unset.
 - `periodChecker.have(address) -> bool`: cooldown eligibility. Claims revert with `PeriodBackend` when `periodChecker` is unset.
 - `periodChecker.poke(address) -> bool`: record usage.
@@ -541,6 +587,7 @@ Native ETH faucet gated by a whitelist and a cooldown. Both gates are mandatory:
 Backend calls require at least one ABI word of returndata. Registry and period booleans must be canonically encoded as `0` or `1`; malformed replies revert with `RegistryBackend` or `PeriodBackend` instead of triggering an out-of-bounds panic or being interpreted as a different boolean.
 
 **Events:**
+
 - `Give(recipient, token, amount)`: `token` is always `address(0)` (ETH).
 - `FaucetAmountChange(amount)`
 - `SealStateChange(sealState, registry, periodChecker)`: also emitted by `setRegistry` and `setPeriodChecker`, not just `seal`.
@@ -555,6 +602,7 @@ Cooldown checker used by EthFaucet to rate-limit claims per address.
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner, poker)`: set the owner and the initial poker.
 - `have(subject) -> bool`: eligibility check, evaluated in this order:
   1. If `balanceThreshold > 0` and `subject.balance >= balanceThreshold`, return false. This overrides everything below, including first-time eligibility.
@@ -565,6 +613,7 @@ Cooldown checker used by EthFaucet to rate-limit claims per address.
 - `setPeriod(seconds)` / `setPoker(address)` / `setBalanceThreshold(amount)`: owner only.
 
 **Events:**
+
 - `PeriodChange(value)`
 - `BalanceThresholdChange(value)`
 
@@ -579,6 +628,7 @@ On-chain registry where accounts declare their preferred ERC20 settlement tokens
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner)`
 - `setTokens(tokens[])`: set the caller's own preference list. 1 to 5 tokens, no zero addresses.
 - `setTokensFor(account, tokens[])`: set the list for another account. Owner or writer only.
@@ -590,6 +640,7 @@ On-chain registry where accounts declare their preferred ERC20 settlement tokens
 **Note:** `setTokens` and `setTokensFor` fully replace the list. Always submit the complete desired list, not a delta. Maximum 5 tokens per account (`MAX_TOKENS`).
 
 **Events:**
+
 - `TokensSet(account, tokens)`
 - `WriterAdded(writer)` / `WriterRemoved(writer)`
 
@@ -602,6 +653,7 @@ Token registry indexed by unique ERC20 symbol. Used as a SwapPool `tokenRegistry
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner, initialTokens[], initialSymbols[])`: pre-register tokens with explicit symbol keys. The two arrays must be the same length.
 - `register(token)` / `add(token)`: read `symbol()` from the token and register it. The token address must be nonzero and unique; the symbol must be nonempty, unique, and 32 bytes or fewer. Owner or writer only. (`register` and `add` are equivalent.)
 - `remove(token)`: deregister a token. Owner or writer only.
@@ -616,6 +668,7 @@ Token registry indexed by unique ERC20 symbol. Used as a SwapPool `tokenRegistry
 **Note:** `time`, `activate`, and `deactivate` exist as inert stubs for registry-interface compatibility. They return `0`/`false` and change no state.
 
 **Events:**
+
 - `AddressKey(symbol, token)` / `AddressAdded(token)` / `AddressRemoved(token)`
 - `WriterAdded(writer)` / `WriterDeleted(writer)`
 
@@ -628,6 +681,7 @@ Write-once key to address registry. The set of allowed identifiers is fixed at d
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner, identifiers[])`: set the owner and the allowed bytes32 identifier keys.
 - `set(identifier, address)`: assign an address to an identifier. Owner only. Reverts if the identifier is unknown (`IdentifierNotFound`), the address is zero (`ZeroAddress`), or the identifier is already set (`IdentifierAlreadyExists`).
 - `addressOf(identifier) -> address`: returns `address(0)` if not yet set.
@@ -635,6 +689,7 @@ Write-once key to address registry. The set of allowed identifiers is fixed at d
 - `identifierCount()`: number of allowed identifiers.
 
 **Events:**
+
 - `AddressKey(identifier, address)`
 
 ---
@@ -646,6 +701,7 @@ Enumerable address registry with per-entry activation state and an addition time
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
+
 - `initialize(owner)`
 - `add(account)`: add a nonzero address. Owner or writer only. Reverts if already present.
 - `remove(account)`: remove an address, including a deactivated address. Owner or writer only. Uses swap-and-pop, so entry order is not preserved.
@@ -661,6 +717,7 @@ Enumerable address registry with per-entry activation state and an addition time
 **Note:** Deactivation retains the entry for enumeration and later reactivation, so `contains` remains true, but immediately makes both `have` and `isActive` return false.
 
 **Events:**
+
 - `AddressAdded(account)` / `AddressRemoved(account)`
 - `AddressActive(account, active)`: emitted on activate and deactivate.
 - `WriterAdded(writer)` / `WriterDeleted(writer)`
@@ -674,21 +731,25 @@ Plain CREATE-deployed recovery contract for assets accidentally sent to a future
 **Proxy:** No
 
 **Constructor:**
+
 - `constructor(admin)` (payable): sets the sole address allowed to sweep assets. Reverts with `ZeroAddress` if `admin` is zero.
 
 **Key Functions (admin only):**
+
 - `sweepETH(to)`: send the full native ETH balance to `to`.
 - `sweepERC20(token, to)` / `sweepERC20s(tokens, to)`: send the full balance of each named ERC20.
 - `sweepERC721(token, tokenId, to)` / `sweepERC721s(token, tokenIds, to)`: transfer the named ERC721 token IDs.
 - `sweepERC1155(token, id, to)` / `sweepERC1155Batch(token, ids, to)`: transfer the full ERC1155 balance for each named ID.
 
 **Behaviour:**
+
 - Only `admin` may sweep. The sweep recipient `to` must be non-zero.
 - The contract accepts ETH via `receive()` and payable `fallback()`.
 - It implements the ERC721 and ERC1155 receiver hooks, so NFTs can be sent with `safeTransferFrom`.
 - Assets are not enumerable on-chain. The caller must supply token addresses and NFT IDs to sweep.
 
 **Events:**
+
 - `SweepETH(to, amount)`
 - `SweepERC20(token, to, amount)`
 - `SweepERC721(token, to, tokenId)`
@@ -696,6 +757,7 @@ Plain CREATE-deployed recovery contract for assets accidentally sent to a future
 - `SweepERC1155Batch(token, to, ids, amounts)`
 
 **Errors:**
+
 - `Unauthorized`: caller is not `admin`.
 - `ZeroAddress`: the constructor `admin` or a sweep recipient is zero.
 
@@ -704,15 +766,19 @@ Plain CREATE-deployed recovery contract for assets accidentally sent to a future
 ## Common Patterns
 
 ### PPM (parts per million)
+
 Fees and allocations use PPM, where `1_000_000 = 100%`. For example `10_000 = 1%` and `100_000 = 10%`.
 
 ### Writer role
+
 `GiftableToken`, `Limiter`, `CAT`, `AccountsIndex`, and `TokenUniqueSymbolIndex` support a writer role: addresses granted specific write permissions by the owner, without full ownership. In most of these, `isWriter` also returns true for the owner. The exception is `TokenUniqueSymbolIndex`, where `isWriter` is a plain public mapping that reflects only the writer flag.
 
 `OracleRelay` is a deliberate exception to the owner-is-writer convention. It has a single `writer` address and the owner is not implicitly a publisher: an owner call to `updateRoundData` reverts with `Access`. Price publication uses a dedicated least-privilege key, and governance ownership should not be a day-to-day price-setting authority. The owner rotates that key with `setWriter`, or replaces it and fails the feed closed in one call with `invalidate`.
 
 ### Quoter interface
+
 `RelativeQuoter`, `OracleQuoter`, and `DecimalQuoter` all implement `IQuoter`, which has two methods: `valueFor` (forward, input to output) and `reverseValueFor` (inverse, output to input, rounded up). SwapPool uses `valueFor` for `getAmountOut` and swaps, and `reverseValueFor` for `getAmountIn`, which powers exact-output routing through SwapRouter. The interface guarantees `valueFor(out, in, reverseValueFor(out, in, x)) >= x`.
 
 ### Proxy and initialization
+
 Every contract marked "Proxy: Yes (ERC1967)" is set up by a one-time `initialize()` call at deploy time. Calling `initialize()` a second time on the same proxy reverts. Contracts marked "Proxy: No" are deployed directly with their constructor.
