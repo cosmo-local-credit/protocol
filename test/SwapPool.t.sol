@@ -53,8 +53,16 @@ contract SwapPoolTest is Test {
         uint256 amountOut,
         uint256 fee
     );
-    event Deposit(address indexed initiator, address indexed tokenIn, uint256 amountIn);
-    event Collect(address indexed feeAddress, address tokenOut, uint256 amountOut);
+    event Deposit(
+        address indexed initiator,
+        address indexed tokenIn,
+        uint256 amountIn
+    );
+    event Collect(
+        address indexed feeAddress,
+        address tokenOut,
+        uint256 amountOut
+    );
 
     function setUp() public {
         // Deploy mock contracts
@@ -152,7 +160,11 @@ contract SwapPoolTest is Test {
     }
 
     function test_deposit_revertIf_unauthorized_token() public {
-        MockERC20 unauthorizedToken = new MockERC20("Unauthorized", "UNAUTH", 18);
+        MockERC20 unauthorizedToken = new MockERC20(
+            "Unauthorized",
+            "UNAUTH",
+            18
+        );
         unauthorizedToken.mint(user1, 1000e18);
 
         uint256 amount = 1000e18;
@@ -178,6 +190,15 @@ contract SwapPoolTest is Test {
         vm.stopPrank();
     }
 
+    function test_deposit_revertsIf_deprecated() public {
+        vm.startPrank(user1);
+        tokenA.approve(address(pool), 1000e18);
+
+        vm.expectRevert(SwapPool.Deprecated.selector);
+        pool.deposit(address(tokenA), 1000e18);
+        vm.stopPrank();
+    }
+
     function test_swap_without_fees() public {
         // Set fee to 0
         feePolicy.setFee(address(tokenA), address(tokenB), 0);
@@ -190,7 +211,14 @@ contract SwapPoolTest is Test {
         uint256 balanceBefore = tokenB.balanceOf(user1);
 
         vm.expectEmit(true, true, false, true);
-        emit Swap(user1, address(tokenA), address(tokenB), amountIn, amountIn, 0);
+        emit Swap(
+            user1,
+            address(tokenA),
+            address(tokenB),
+            amountIn,
+            amountIn,
+            0
+        );
 
         pool.withdraw(address(tokenB), address(tokenA), amountIn);
         vm.stopPrank();
@@ -213,7 +241,14 @@ contract SwapPoolTest is Test {
         uint256 balanceBefore = tokenB.balanceOf(user1);
 
         vm.expectEmit(true, true, false, true);
-        emit Swap(user1, address(tokenA), address(tokenB), amountIn, expectedOut, expectedFee);
+        emit Swap(
+            user1,
+            address(tokenA),
+            address(tokenB),
+            amountIn,
+            expectedOut,
+            expectedFee
+        );
 
         pool.withdraw(address(tokenB), address(tokenA), amountIn);
         vm.stopPrank();
@@ -276,8 +311,16 @@ contract SwapPoolTest is Test {
         );
 
         // Set limits for the decoupled pool
-        limiter.setLimit(address(tokenA), address(decoupledPool), type(uint256).max);
-        limiter.setLimit(address(tokenB), address(decoupledPool), type(uint256).max);
+        limiter.setLimit(
+            address(tokenA),
+            address(decoupledPool),
+            type(uint256).max
+        );
+        limiter.setLimit(
+            address(tokenB),
+            address(decoupledPool),
+            type(uint256).max
+        );
 
         // Add liquidity
         tokenA.mint(address(decoupledPool), 1000e18);
@@ -331,7 +374,10 @@ contract SwapPoolTest is Test {
         uint256 collected = pool.withdraw(address(tokenB), accumulatedFees);
 
         assertEq(collected, accumulatedFees);
-        assertEq(tokenB.balanceOf(feeAddress), feeBalanceBefore + accumulatedFees);
+        assertEq(
+            tokenB.balanceOf(feeAddress),
+            feeBalanceBefore + accumulatedFees
+        );
         assertEq(pool.fees(address(tokenB)), 0);
     }
 
@@ -396,7 +442,11 @@ contract SwapPoolTest is Test {
         uint256 balanceBefore = tokenA.balanceOf(user1);
 
         vm.prank(owner);
-        uint256 withdrawn = pool.withdrawLiquidity(address(tokenA), user1, amount);
+        uint256 withdrawn = pool.withdrawLiquidity(
+            address(tokenA),
+            user1,
+            amount
+        );
 
         assertEq(withdrawn, amount);
         assertEq(tokenA.balanceOf(user1), balanceBefore + amount);
@@ -423,7 +473,9 @@ contract SwapPoolTest is Test {
     }
 
     function test_withdrawLiquidity_preservesDecoupledFeeReserves() public {
-        SwapPool decoupledPool = SwapPool(LibClone.clone(address(implementation)));
+        SwapPool decoupledPool = SwapPool(
+            LibClone.clone(address(implementation))
+        );
         decoupledPool.initialize(
             "Decoupled Pool",
             "DSWAP",
@@ -437,8 +489,16 @@ contract SwapPoolTest is Test {
             true,
             address(protocolFeeController)
         );
-        limiter.setLimit(address(tokenA), address(decoupledPool), type(uint256).max);
-        limiter.setLimit(address(tokenB), address(decoupledPool), type(uint256).max);
+        limiter.setLimit(
+            address(tokenA),
+            address(decoupledPool),
+            type(uint256).max
+        );
+        limiter.setLimit(
+            address(tokenB),
+            address(decoupledPool),
+            type(uint256).max
+        );
         tokenB.mint(address(decoupledPool), 1000e18);
         feePolicy.setFee(address(tokenA), address(tokenB), 100_000); // 10%
 
@@ -454,7 +514,11 @@ contract SwapPoolTest is Test {
         vm.expectRevert(InsufficientBalance.selector);
         decoupledPool.withdrawLiquidity(address(tokenB), owner, 901e18);
         decoupledPool.withdrawLiquidity(address(tokenB), owner, 900e18);
-        assertEq(decoupledPool.withdraw(address(tokenB)), 10e18, "reserved fees remain collectible");
+        assertEq(
+            decoupledPool.withdraw(address(tokenB)),
+            10e18,
+            "reserved fees remain collectible"
+        );
         vm.stopPrank();
     }
 
@@ -464,7 +528,11 @@ contract SwapPoolTest is Test {
         uint256 amountIn = 100e18;
         uint256 expectedOut = 99e18; // 100 - 1% fee
 
-        uint256 amountOut = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
+        uint256 amountOut = pool.getAmountOut(
+            address(tokenB),
+            address(tokenA),
+            amountIn
+        );
 
         assertEq(amountOut, expectedOut);
     }
@@ -478,7 +546,11 @@ contract SwapPoolTest is Test {
         uint256 expectedFee = (quotedValue * 10000) / 1_000_000; // 2e18
         uint256 expectedOut = quotedValue - expectedFee; // 198e18
 
-        uint256 amountOut = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
+        uint256 amountOut = pool.getAmountOut(
+            address(tokenB),
+            address(tokenA),
+            amountIn
+        );
 
         assertEq(amountOut, expectedOut);
     }
@@ -490,10 +562,18 @@ contract SwapPoolTest is Test {
         // With 1% fee, no protocol fee (recipient is address(0) by default):
         // quotedValue = ceil(99e18 * 1e12 / (1e12 - 10000 * 1e6)) = ceil(99e18 * 1e12 / 990000e6) = 100e18
         // amountIn = quotedValue + 1 (rounding safety)
-        uint256 amountIn = pool.getAmountIn(address(tokenB), address(tokenA), desiredOut);
+        uint256 amountIn = pool.getAmountIn(
+            address(tokenB),
+            address(tokenA),
+            desiredOut
+        );
 
         // Verify roundtrip: getAmountOut(amountIn) >= desiredOut
-        uint256 actualOut = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
+        uint256 actualOut = pool.getAmountOut(
+            address(tokenB),
+            address(tokenA),
+            amountIn
+        );
         assertGe(actualOut, desiredOut, "roundtrip: output must be >= desired");
     }
 
@@ -501,7 +581,11 @@ contract SwapPoolTest is Test {
         feePolicy.setFee(address(tokenA), address(tokenB), 0);
 
         uint256 desiredOut = 100e18;
-        uint256 amountIn = pool.getAmountIn(address(tokenB), address(tokenA), desiredOut);
+        uint256 amountIn = pool.getAmountIn(
+            address(tokenB),
+            address(tokenA),
+            desiredOut
+        );
 
         // No fees, no quoter rate => quotedValue = desiredOut, amountIn = desiredOut + 1
         assertEq(amountIn, desiredOut + 1);
@@ -514,10 +598,18 @@ contract SwapPoolTest is Test {
         protocolFeeController.setProtocolRecipient(protocolRecipient);
 
         uint256 desiredOut = 989e18;
-        uint256 amountIn = pool.getAmountIn(address(tokenB), address(tokenA), desiredOut);
+        uint256 amountIn = pool.getAmountIn(
+            address(tokenB),
+            address(tokenA),
+            desiredOut
+        );
 
         // Verify roundtrip
-        uint256 actualOut = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
+        uint256 actualOut = pool.getAmountOut(
+            address(tokenB),
+            address(tokenA),
+            amountIn
+        );
         assertGe(actualOut, desiredOut, "roundtrip with protocol fee");
     }
 
@@ -550,7 +642,11 @@ contract SwapPoolTest is Test {
         // totalFee = 1000e18 * 20000 / 1e6 = 20e18
         // protocolFee = 20e18 * 100000 / 1e6 = 2e18 (fee above floor, so effectiveFee = totalFee)
         // netValue = 1000e18 - 20e18 - 2e18 = 978e18
-        uint256 amountOut = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
+        uint256 amountOut = pool.getAmountOut(
+            address(tokenB),
+            address(tokenA),
+            amountIn
+        );
         assertEq(amountOut, 978e18);
     }
 
@@ -558,20 +654,46 @@ contract SwapPoolTest is Test {
         desiredOut = bound(desiredOut, 1, 10000e18);
         feePolicy.setFee(address(tokenA), address(tokenB), 10000); // 1%
 
-        uint256 amountIn = pool.getAmountIn(address(tokenB), address(tokenA), desiredOut);
-        uint256 actualOut = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
-        assertGe(actualOut, desiredOut, "roundtrip property: output >= desired");
+        uint256 amountIn = pool.getAmountIn(
+            address(tokenB),
+            address(tokenA),
+            desiredOut
+        );
+        uint256 actualOut = pool.getAmountOut(
+            address(tokenB),
+            address(tokenA),
+            amountIn
+        );
+        assertGe(
+            actualOut,
+            desiredOut,
+            "roundtrip property: output >= desired"
+        );
     }
 
-    function test_getAmountIn_roundtrip_with_protocol_fee_fuzz(uint256 desiredOut) public {
+    function test_getAmountIn_roundtrip_with_protocol_fee_fuzz(
+        uint256 desiredOut
+    ) public {
         desiredOut = bound(desiredOut, 1, 10000e18);
         feePolicy.setFee(address(tokenA), address(tokenB), 5000); // 0.5% (below floor)
         protocolFeeController.setProtocolFee(100_000); // 10%
         protocolFeeController.setProtocolRecipient(makeAddr("proto"));
 
-        uint256 amountIn = pool.getAmountIn(address(tokenB), address(tokenA), desiredOut);
-        uint256 actualOut = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
-        assertGe(actualOut, desiredOut, "roundtrip with protocol fee: output >= desired");
+        uint256 amountIn = pool.getAmountIn(
+            address(tokenB),
+            address(tokenA),
+            desiredOut
+        );
+        uint256 actualOut = pool.getAmountOut(
+            address(tokenB),
+            address(tokenA),
+            amountIn
+        );
+        assertGe(
+            actualOut,
+            desiredOut,
+            "roundtrip with protocol fee: output >= desired"
+        );
     }
 
     function test_seal_feePolicy() public {
@@ -625,7 +747,10 @@ contract SwapPoolTest is Test {
         vm.stopPrank();
 
         assertEq(pool.sealState(), 7);
-        assertFalse(pool.isSealed(0), "registry and limiter bits are still open");
+        assertFalse(
+            pool.isSealed(0),
+            "registry and limiter bits are still open"
+        );
         assertTrue(pool.isSealed(7));
     }
 
@@ -819,7 +944,10 @@ contract SwapPoolTest is Test {
         p.seal(31);
 
         assertEq(p.sealState(), 0);
-        assertFalse(p.isSealed(0), "an ungated pool can never report a full seal");
+        assertFalse(
+            p.isSealed(0),
+            "an ungated pool can never report a full seal"
+        );
     }
 
     function test_seal_revertIf_anyBitInMaskIsUnset() public {
@@ -858,7 +986,10 @@ contract SwapPoolTest is Test {
         assertEq(p.seal(31), 31);
         vm.stopPrank();
 
-        assertTrue(p.isSealed(0), "full seal is reachable once both gates are wired");
+        assertTrue(
+            p.isSealed(0),
+            "full seal is reachable once both gates are wired"
+        );
         assertTrue(p.tokenRegistry() != address(0));
         assertTrue(p.tokenLimiter() != address(0));
     }
@@ -956,7 +1087,11 @@ contract SwapPoolTest is Test {
         );
 
         uint256 value = 100e18;
-        uint256 quote = newPool.getQuote(address(tokenB), address(tokenA), value);
+        uint256 quote = newPool.getQuote(
+            address(tokenB),
+            address(tokenA),
+            value
+        );
 
         assertEq(quote, value); // 1:1 when no quoter
     }
@@ -967,7 +1102,9 @@ contract SwapPoolTest is Test {
     // assumedFee (floor) = 1000e18 * 1% = 10e18
     // protocolFee = effectiveFee * 10%
 
-    function _setupProtocolFeeTest(uint256 poolFeePpm) internal returns (address protocolRecipient) {
+    function _setupProtocolFeeTest(
+        uint256 poolFeePpm
+    ) internal returns (address protocolRecipient) {
         protocolRecipient = makeAddr("protocolRecipient");
         protocolFeeController.setProtocolFee(100_000); // 10%
         protocolFeeController.setProtocolRecipient(protocolRecipient);
@@ -992,8 +1129,16 @@ contract SwapPoolTest is Test {
         vm.stopPrank();
 
         assertEq(tokenB.balanceOf(user1), 10000e18 + netValue, "user netValue");
-        assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
-        assertEq(pool.fees(address(tokenB)), totalFee, "pool owner gets full fee");
+        assertEq(
+            tokenB.balanceOf(protocolRecipient),
+            protocolFee,
+            "protocol fee"
+        );
+        assertEq(
+            pool.fees(address(tokenB)),
+            totalFee,
+            "pool owner gets full fee"
+        );
         assertEq(netValue + protocolFee + totalFee, quotedValue);
     }
 
@@ -1013,8 +1158,16 @@ contract SwapPoolTest is Test {
         vm.stopPrank();
 
         assertEq(tokenB.balanceOf(user1), 10000e18 + netValue, "user netValue");
-        assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
-        assertEq(pool.fees(address(tokenB)), totalFee, "pool owner gets full fee");
+        assertEq(
+            tokenB.balanceOf(protocolRecipient),
+            protocolFee,
+            "protocol fee"
+        );
+        assertEq(
+            pool.fees(address(tokenB)),
+            totalFee,
+            "pool owner gets full fee"
+        );
         assertEq(netValue + protocolFee + totalFee, quotedValue);
     }
 
@@ -1035,8 +1188,16 @@ contract SwapPoolTest is Test {
         vm.stopPrank();
 
         assertEq(tokenB.balanceOf(user1), 10000e18 + netValue, "user netValue");
-        assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
-        assertEq(pool.fees(address(tokenB)), totalFee, "pool owner gets full fee");
+        assertEq(
+            tokenB.balanceOf(protocolRecipient),
+            protocolFee,
+            "protocol fee"
+        );
+        assertEq(
+            pool.fees(address(tokenB)),
+            totalFee,
+            "pool owner gets full fee"
+        );
         assertEq(netValue + protocolFee + totalFee, quotedValue);
     }
 
@@ -1057,7 +1218,11 @@ contract SwapPoolTest is Test {
         vm.stopPrank();
 
         assertEq(tokenB.balanceOf(user1), 10000e18 + netValue, "user netValue");
-        assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
+        assertEq(
+            tokenB.balanceOf(protocolRecipient),
+            protocolFee,
+            "protocol fee"
+        );
         assertEq(pool.fees(address(tokenB)), 0, "pool owner gets 0");
         assertEq(netValue + protocolFee + totalFee, quotedValue);
     }
@@ -1075,13 +1240,28 @@ contract SwapPoolTest is Test {
         uint256 user1Before = tokenB.balanceOf(user1);
 
         vm.expectEmit(true, true, false, true);
-        emit Swap(user1, address(tokenA), address(tokenB), amountIn, amountIn, 0);
+        emit Swap(
+            user1,
+            address(tokenA),
+            address(tokenB),
+            amountIn,
+            amountIn,
+            0
+        );
 
         pool.withdraw(address(tokenB), address(tokenA), amountIn, recipient);
         vm.stopPrank();
 
-        assertEq(tokenB.balanceOf(recipient), recipientBefore + amountIn, "recipient receives output");
-        assertEq(tokenB.balanceOf(user1), user1Before, "caller receives nothing");
+        assertEq(
+            tokenB.balanceOf(recipient),
+            recipientBefore + amountIn,
+            "recipient receives output"
+        );
+        assertEq(
+            tokenB.balanceOf(user1),
+            user1Before,
+            "caller receives nothing"
+        );
     }
 
     function test_swapTo_with_fees() public {
@@ -1097,8 +1277,16 @@ contract SwapPoolTest is Test {
         pool.withdraw(address(tokenB), address(tokenA), amountIn, recipient);
         vm.stopPrank();
 
-        assertEq(tokenB.balanceOf(recipient), expectedOut, "recipient gets net amount");
-        assertEq(pool.fees(address(tokenB)), expectedFee, "fees accumulate correctly");
+        assertEq(
+            tokenB.balanceOf(recipient),
+            expectedOut,
+            "recipient gets net amount"
+        );
+        assertEq(
+            pool.fees(address(tokenB)),
+            expectedFee,
+            "fees accumulate correctly"
+        );
     }
 
     function test_swapTo_revertIf_zero_recipient() public {
@@ -1129,8 +1317,16 @@ contract SwapPoolTest is Test {
         vm.stopPrank();
 
         assertEq(tokenB.balanceOf(user1), 10000e18 + netValue, "user netValue");
-        assertEq(tokenB.balanceOf(protocolRecipient), protocolFee, "protocol fee");
-        assertEq(pool.fees(address(tokenB)), totalFee, "pool owner gets full 1 PPM fee");
+        assertEq(
+            tokenB.balanceOf(protocolRecipient),
+            protocolFee,
+            "protocol fee"
+        );
+        assertEq(
+            pool.fees(address(tokenB)),
+            totalFee,
+            "pool owner gets full 1 PPM fee"
+        );
         assertEq(netValue + protocolFee + totalFee, quotedValue);
     }
 
@@ -1149,7 +1345,14 @@ contract SwapPoolTest is Test {
         pool.withdraw(address(tokenA), address(tokenA), 1000e18, user2);
 
         vm.expectRevert(SwapPool.InvalidToken.selector);
-        pool.withdraw(address(tokenA), address(tokenA), 1000e18, user2, 0, type(uint256).max);
+        pool.withdraw(
+            address(tokenA),
+            address(tokenA),
+            1000e18,
+            user2,
+            0,
+            type(uint256).max
+        );
         vm.stopPrank();
 
         assertEq(tokenA.balanceOf(user1), 10000e18, "no input was consumed");
@@ -1192,10 +1395,16 @@ contract SwapPoolTest is Test {
         // Pool banked 900, so the quote is on 900 and the payout is 900 - 1%.
         assertEq(fot.balanceOf(address(pool)), 900e18, "pool banked 900");
         assertEq(out, 891e18, "payout is priced on the 900 received");
-        assertLe(out, fot.balanceOf(address(pool)), "the pool never pays out more than it took in");
+        assertLe(
+            out,
+            fot.balanceOf(address(pool)),
+            "the pool never pays out more than it took in"
+        );
     }
 
-    function test_swap_feeOnTransferOutput_returnsAmountActuallyReceived() public {
+    function test_swap_feeOnTransferOutput_returnsAmountActuallyReceived()
+        public
+    {
         MockFeeOnTransferERC20 fot = new MockFeeOnTransferERC20(1000); // 10%
         tokenRegistry.addToken(address(fot));
         limiter.setLimit(address(fot), address(pool), type(uint256).max);
@@ -1207,11 +1416,17 @@ contract SwapPoolTest is Test {
         uint256 received = pool.withdraw(address(fot), address(tokenA), 100e18);
         vm.stopPrank();
 
-        assertEq(received, 90e18, "return value is the recipient balance delta");
+        assertEq(
+            received,
+            90e18,
+            "return value is the recipient balance delta"
+        );
         assertEq(fot.balanceOf(user1), 90e18);
     }
 
-    function test_boundedSwap_feeOnTransferOutput_enforcesActualMinimum() public {
+    function test_boundedSwap_feeOnTransferOutput_enforcesActualMinimum()
+        public
+    {
         MockFeeOnTransferERC20 fot = new MockFeeOnTransferERC20(1000); // 10%
         tokenRegistry.addToken(address(fot));
         limiter.setLimit(address(fot), address(pool), type(uint256).max);
@@ -1221,13 +1436,31 @@ contract SwapPoolTest is Test {
         vm.startPrank(user1);
         tokenA.approve(address(pool), 200e18);
         vm.expectRevert(SwapPool.InsufficientOutput.selector);
-        pool.withdraw(address(fot), address(tokenA), 100e18, user1, 100e18, block.timestamp);
+        pool.withdraw(
+            address(fot),
+            address(tokenA),
+            100e18,
+            user1,
+            100e18,
+            block.timestamp
+        );
 
-        uint256 received = pool.withdraw(address(fot), address(tokenA), 100e18, user1, 90e18, block.timestamp);
+        uint256 received = pool.withdraw(
+            address(fot),
+            address(tokenA),
+            100e18,
+            user1,
+            90e18,
+            block.timestamp
+        );
         vm.stopPrank();
 
         assertEq(received, 90e18);
-        assertEq(fot.balanceOf(user1), 90e18, "failed first attempt rolled back completely");
+        assertEq(
+            fot.balanceOf(user1),
+            90e18,
+            "failed first attempt rolled back completely"
+        );
     }
 
     function test_swap_revertIf_outputTokenIsNotRegistered() public {
@@ -1273,7 +1506,14 @@ contract SwapPoolTest is Test {
 
         vm.startPrank(user1);
         tokenA.approve(address(pool), amountIn);
-        uint256 out = pool.withdraw(address(tokenB), address(tokenA), amountIn, user2, 99e18, block.timestamp + 1);
+        uint256 out = pool.withdraw(
+            address(tokenB),
+            address(tokenA),
+            amountIn,
+            user2,
+            99e18,
+            block.timestamp + 1
+        );
         vm.stopPrank();
 
         assertEq(out, 99e18);
@@ -1282,7 +1522,11 @@ contract SwapPoolTest is Test {
 
     function test_boundedSwap_revertIf_outputBelowMinimum() public {
         uint256 amountIn = 100e18;
-        uint256 quoted = pool.getAmountOut(address(tokenB), address(tokenA), amountIn);
+        uint256 quoted = pool.getAmountOut(
+            address(tokenB),
+            address(tokenA),
+            amountIn
+        );
         assertEq(quoted, 100e18, "user sees 100 when signing");
 
         // Price moves against the caller between quoting and execution.
@@ -1291,10 +1535,21 @@ contract SwapPoolTest is Test {
         vm.startPrank(user1);
         tokenA.approve(address(pool), amountIn);
         vm.expectRevert(SwapPool.InsufficientOutput.selector);
-        pool.withdraw(address(tokenB), address(tokenA), amountIn, user1, quoted, block.timestamp + 1);
+        pool.withdraw(
+            address(tokenB),
+            address(tokenA),
+            amountIn,
+            user1,
+            quoted,
+            block.timestamp + 1
+        );
         vm.stopPrank();
 
-        assertEq(tokenA.balanceOf(user1), 10000e18, "the whole swap rolled back");
+        assertEq(
+            tokenA.balanceOf(user1),
+            10000e18,
+            "the whole swap rolled back"
+        );
         assertEq(tokenB.balanceOf(user1), 10000e18);
     }
 
@@ -1305,7 +1560,14 @@ contract SwapPoolTest is Test {
         vm.startPrank(user1);
         tokenA.approve(address(pool), amountIn);
         vm.expectRevert(SwapPool.Expired.selector);
-        pool.withdraw(address(tokenB), address(tokenA), amountIn, user1, 0, block.timestamp - 1);
+        pool.withdraw(
+            address(tokenB),
+            address(tokenA),
+            amountIn,
+            user1,
+            0,
+            block.timestamp - 1
+        );
         vm.stopPrank();
 
         assertEq(tokenA.balanceOf(user1), 10000e18, "no input was consumed");
@@ -1317,7 +1579,14 @@ contract SwapPoolTest is Test {
 
         vm.startPrank(user1);
         tokenA.approve(address(pool), amountIn);
-        pool.withdraw(address(tokenB), address(tokenA), amountIn, user1, 0, block.timestamp);
+        pool.withdraw(
+            address(tokenB),
+            address(tokenA),
+            amountIn,
+            user1,
+            0,
+            block.timestamp
+        );
         vm.stopPrank();
 
         assertEq(tokenB.balanceOf(user1), 10000e18 + 100e18);
@@ -1327,7 +1596,14 @@ contract SwapPoolTest is Test {
         vm.startPrank(user1);
         tokenA.approve(address(pool), 100e18);
         vm.expectRevert(InvalidRecipient.selector);
-        pool.withdraw(address(tokenB), address(tokenA), 100e18, address(0), 0, type(uint256).max);
+        pool.withdraw(
+            address(tokenB),
+            address(tokenA),
+            100e18,
+            address(0),
+            0,
+            type(uint256).max
+        );
         vm.stopPrank();
     }
 
@@ -1376,7 +1652,11 @@ contract SwapPoolTest is Test {
             vm.stopPrank();
         }
 
-        assertEq(tokenA.balanceOf(user1), 10000e18, "no input was taken at any size");
+        assertEq(
+            tokenA.balanceOf(user1),
+            10000e18,
+            "no input was taken at any size"
+        );
     }
 
     function test_feeDomain_overBound_revertsFeeTooHigh() public {
@@ -1399,7 +1679,11 @@ contract SwapPoolTest is Test {
     function test_feeDomain_justBelowBound_stillQuotesAndSwaps() public {
         _setupProtocolFeeTest(909_090);
 
-        uint256 out = pool.getAmountOut(address(tokenB), address(tokenA), 100e18);
+        uint256 out = pool.getAmountOut(
+            address(tokenB),
+            address(tokenA),
+            100e18
+        );
         assertGt(out, 0);
         assertGt(pool.getAmountIn(address(tokenB), address(tokenA), 1e18), 0);
 
@@ -1413,7 +1697,10 @@ contract SwapPoolTest is Test {
         feePolicy.setFee(address(tokenA), address(tokenB), 600_000);
         protocolFeeController.setProtocolFee(100_000);
         protocolFeeController.setProtocolRecipient(makeAddr("proto"));
-        assertGt(pool.getAmountOut(address(tokenB), address(tokenA), 100e18), 0);
+        assertGt(
+            pool.getAmountOut(address(tokenB), address(tokenA), 100e18),
+            0
+        );
 
         protocolFeeController.setProtocolFee(700_000);
 
@@ -1428,8 +1715,14 @@ contract SwapPoolTest is Test {
 
         vm.startPrank(user1);
         tokenA.approve(address(pool), 200e18);
-        assertEq(pool.withdraw(address(tokenB), address(tokenA), 100e18), 99e18);
-        assertEq(pool.withdraw(address(tokenB), address(tokenA), 100e18, user2), 99e18);
+        assertEq(
+            pool.withdraw(address(tokenB), address(tokenA), 100e18),
+            99e18
+        );
+        assertEq(
+            pool.withdraw(address(tokenB), address(tokenA), 100e18, user2),
+            99e18
+        );
         vm.stopPrank();
     }
 }
@@ -1477,7 +1770,10 @@ contract MockERC20 is IERC20 {
         return true;
     }
 
-    function allowance(address owner, address spender) external view returns (uint256) {
+    function allowance(
+        address owner,
+        address spender
+    ) external view returns (uint256) {
         return _allowances[owner][spender];
     }
 
@@ -1486,7 +1782,11 @@ contract MockERC20 is IERC20 {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         _allowances[from][msg.sender] -= amount;
         _balances[from] -= amount;
         _balances[to] += amount;
@@ -1531,7 +1831,10 @@ contract MockFeeOnTransferERC20 is IERC20 {
         return _balances[account];
     }
 
-    function allowance(address owner, address spender) external view returns (uint256) {
+    function allowance(
+        address owner,
+        address spender
+    ) external view returns (uint256) {
         return _allowances[owner][spender];
     }
 
@@ -1545,7 +1848,11 @@ contract MockFeeOnTransferERC20 is IERC20 {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         _allowances[from][msg.sender] -= amount;
         _move(from, to, amount);
         return true;
@@ -1598,7 +1905,11 @@ contract MockLyingERC20 is IERC20 {
         return true;
     }
 
-    function transferFrom(address, address, uint256) external pure returns (bool) {
+    function transferFrom(
+        address,
+        address,
+        uint256
+    ) external pure returns (bool) {
         return true;
     }
 }
@@ -1610,7 +1921,10 @@ contract MockFeePolicy is IFeePolicy {
         fees[tokenIn][tokenOut] = fee;
     }
 
-    function getFee(address tokenIn, address tokenOut) external view returns (uint256) {
+    function getFee(
+        address tokenIn,
+        address tokenOut
+    ) external view returns (uint256) {
         return fees[tokenIn][tokenOut];
     }
 
@@ -1626,7 +1940,11 @@ contract MockQuoter is IQuoter {
         rates[outToken][inToken] = rate;
     }
 
-    function valueFor(address outToken, address inToken, uint256 value) external view returns (uint256) {
+    function valueFor(
+        address outToken,
+        address inToken,
+        uint256 value
+    ) external view returns (uint256) {
         uint256 rate = rates[outToken][inToken];
         if (rate == 0) {
             return value;
@@ -1634,7 +1952,11 @@ contract MockQuoter is IQuoter {
         return value * rate;
     }
 
-    function reverseValueFor(address outToken, address inToken, uint256 value) external view returns (uint256) {
+    function reverseValueFor(
+        address outToken,
+        address inToken,
+        uint256 value
+    ) external view returns (uint256) {
         uint256 rate = rates[outToken][inToken];
         if (rate == 0) {
             return value;
@@ -1667,7 +1989,10 @@ contract MockLimiter is ILimiter {
         limits[token][holder] = limit;
     }
 
-    function limitOf(address token, address holder) external view returns (uint256) {
+    function limitOf(
+        address token,
+        address holder
+    ) external view returns (uint256) {
         return limits[token][holder];
     }
 }

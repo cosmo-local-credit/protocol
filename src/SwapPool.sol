@@ -32,6 +32,7 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     error Expired();
     error InsufficientOutput();
     error FeeTooHigh();
+    error Deprecated();
 
     address public tokenRegistry;
     address public tokenLimiter;
@@ -101,10 +102,18 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
 
     // Emitted only after an explicit liquidity donation
     // Users can implictly donate via a normal send
-    event Deposit(address indexed initiator, address indexed tokenIn, uint256 amountIn);
+    event Deposit(
+        address indexed initiator,
+        address indexed tokenIn,
+        uint256 amountIn
+    );
 
     // Emitted when collecting fees to the set feeAddress
-    event Collect(address indexed feeAddress, address tokenOut, uint256 amountOut);
+    event Collect(
+        address indexed feeAddress,
+        address tokenOut,
+        uint256 amountOut
+    );
 
     constructor() {
         _disableInitializers();
@@ -155,9 +164,12 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     function seal(uint8 _state) public onlyOwner returns (uint8) {
         if (_state > maxSealState) revert InvalidState();
         if (_state & sealState != 0) revert AlreadyLocked();
-        if (_state & FEEADDRESS_STATE != 0 && feeAddress == address(0)) revert InvalidState();
-        if (_state & REGISTRY_STATE != 0 && tokenRegistry == address(0)) revert InvalidState();
-        if (_state & LIMITER_STATE != 0 && tokenLimiter == address(0)) revert InvalidState();
+        if (_state & FEEADDRESS_STATE != 0 && feeAddress == address(0))
+            revert InvalidState();
+        if (_state & REGISTRY_STATE != 0 && tokenRegistry == address(0))
+            revert InvalidState();
+        if (_state & LIMITER_STATE != 0 && tokenLimiter == address(0))
+            revert InvalidState();
         sealState |= _state;
         uint8 mask = _fullSealMask();
         if (fullSealMask == 0 && (sealState & maxSealState) == maxSealState) {
@@ -209,16 +221,25 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
 
     // Returns the amount the pool actually received, which is what every
     // downstream calculation is priced on
-    function deposit(address _token, uint256 _value) public nonReentrant returns (uint256 received) {
-        received = _deposit(_token, _value);
+    // @notice Deprecated. Standalone deposits are disabled to prevent cap saturation and trapped funds.
+    // Tokens enter the pool through swap operations or initial balance transfers.
+    function deposit(address, uint256) public pure returns (uint256) {
+        revert Deprecated();
     }
 
-    function _deposit(address _token, uint256 _value) private returns (uint256 received) {
+    function _deposit(
+        address _token,
+        uint256 _value
+    ) private returns (uint256 received) {
         mustAllowedToken(_token, tokenRegistry);
         mustWithinLimit(_token, _value);
 
         uint256 balanceBefore = IERC20(_token).balanceOf(address(this));
-        bool success = IERC20(_token).transferFrom(msg.sender, address(this), _value);
+        bool success = IERC20(_token).transferFrom(
+            msg.sender,
+            address(this),
+            _value
+        );
         if (!success) revert TransferFailed();
 
         received = IERC20(_token).balanceOf(address(this)) - balanceBefore;
@@ -227,7 +248,11 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         emit Deposit(msg.sender, _token, received);
     }
 
-    function getQuote(address _outToken, address _inToken, uint256 _value) public returns (uint256) {
+    function getQuote(
+        address _outToken,
+        address _inToken,
+        uint256 _value
+    ) public returns (uint256) {
         if (quoter == address(0x0)) {
             return _value;
         }
@@ -235,7 +260,11 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         return IQuoter(quoter).valueFor(_outToken, _inToken, _value);
     }
 
-    function getFee(address _inToken, address _outToken, uint256 _value) public view returns (uint256) {
+    function getFee(
+        address _inToken,
+        address _outToken,
+        uint256 _value
+    ) public view returns (uint256) {
         if (feePolicy == address(0)) {
             return 0;
         }
@@ -246,7 +275,11 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
 
     // Calculate the amount of output tokens received for a given input amount
     // Returns the net amount after all fees are deducted (including protocol fee)
-    function getAmountOut(address _outToken, address _inToken, uint256 _amountIn) public returns (uint256) {
+    function getAmountOut(
+        address _outToken,
+        address _inToken,
+        uint256 _amountIn
+    ) public returns (uint256) {
         _mustFeeDomain(_inToken, _outToken);
 
         uint256 quotedValue = getQuote(_outToken, _inToken, _amountIn);
@@ -257,7 +290,11 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
 
     // Calculate the amount of input tokens required to receive a desired output amount
     // Returns the input amount needed after accounting for all fees (including protocol fee)
-    function getAmountIn(address _outToken, address _inToken, uint256 _amountOut) public returns (uint256) {
+    function getAmountIn(
+        address _outToken,
+        address _inToken,
+        uint256 _amountOut
+    ) public returns (uint256) {
         uint256 feePpm = 0;
         if (feePolicy != address(0)) {
             feePpm = IFeePolicy(feePolicy).getFee(_inToken, _outToken);
@@ -266,14 +303,22 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         uint256 protocolFeePpm = _getProtocolFeePpm();
 
         // Reverse-calculate the quotedValue from desired net output
-        uint256 quotedValue = _reverseNetToQuoted(_amountOut, feePpm, protocolFeePpm);
+        uint256 quotedValue = _reverseNetToQuoted(
+            _amountOut,
+            feePpm,
+            protocolFeePpm
+        );
 
         // Reverse the quoter: get input amount from quoted output
         uint256 amountIn;
         if (quoter == address(0x0)) {
             amountIn = quotedValue;
         } else {
-            amountIn = IQuoter(quoter).reverseValueFor(_outToken, _inToken, quotedValue);
+            amountIn = IQuoter(quoter).reverseValueFor(
+                _outToken,
+                _inToken,
+                quotedValue
+            );
         }
 
         // +1 wei rounding safety
@@ -285,18 +330,28 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     // evaluate the joint constraint, and both swap directions test the same
     // predicate so that a rejected configuration is rejected either way round.
     function _mustFeeDomain(address _inToken, address _outToken) private view {
-        uint256 feePpm = feePolicy == address(0) ? 0 : IFeePolicy(feePolicy).getFee(_inToken, _outToken);
+        uint256 feePpm = feePolicy == address(0)
+            ? 0
+            : IFeePolicy(feePolicy).getFee(_inToken, _outToken);
         _mustFeeDomainPpm(feePpm, _getProtocolFeePpm());
     }
 
-    function _mustFeeDomainPpm(uint256 _feePpm, uint256 _protocolFeePpm) private pure {
-        if (_feePpm >= DEFAULT_FEE_PPM && _feePpm * (PPM + _protocolFeePpm) >= PPM * PPM) revert FeeTooHigh();
+    function _mustFeeDomainPpm(
+        uint256 _feePpm,
+        uint256 _protocolFeePpm
+    ) private pure {
+        if (
+            _feePpm >= DEFAULT_FEE_PPM &&
+            _feePpm * (PPM + _protocolFeePpm) >= PPM * PPM
+        ) revert FeeTooHigh();
     }
 
     // Extract protocol fee PPM, returning 0 if controller is unset or recipient is zero
     function _getProtocolFeePpm() internal view returns (uint256) {
         if (protocolFeeController == address(0)) return 0;
-        IProtocolFeeController ctrl = IProtocolFeeController(protocolFeeController);
+        IProtocolFeeController ctrl = IProtocolFeeController(
+            protocolFeeController
+        );
         uint256 pFeePpm = ctrl.getProtocolFee();
         address recipient = ctrl.getProtocolFeeRecipient();
         if (pFeePpm == 0 || recipient == address(0)) return 0;
@@ -306,11 +361,11 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     // Reverse-calculate quotedValue from desired net output amount
     // netOutput = quotedValue - poolFee - protocolFee
     // Uses ceiling division to ensure sufficient input
-    function _reverseNetToQuoted(uint256 _netOutput, uint256 _feePpm, uint256 _protocolFeePpm)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _reverseNetToQuoted(
+        uint256 _netOutput,
+        uint256 _feePpm,
+        uint256 _protocolFeePpm
+    ) internal pure returns (uint256) {
         if (_feePpm == 0 && _protocolFeePpm == 0) {
             return _netOutput;
         }
@@ -338,22 +393,32 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         if (_feePpm >= DEFAULT_FEE_PPM) {
             denominator = ppmSquared - _feePpm * (PPM + _protocolFeePpm);
         } else {
-            denominator = ppmSquared - _feePpm * PPM - DEFAULT_FEE_PPM * _protocolFeePpm;
+            denominator =
+                ppmSquared -
+                _feePpm *
+                PPM -
+                DEFAULT_FEE_PPM *
+                _protocolFeePpm;
         }
 
         // Ceiling division: ceil(netOutput * PPM² / denominator)
         return (_netOutput * ppmSquared + denominator - 1) / denominator;
     }
 
-    function withdraw(address _outToken, address _inToken, uint256 _value) public nonReentrant returns (uint256) {
+    function withdraw(
+        address _outToken,
+        address _inToken,
+        uint256 _value
+    ) public nonReentrant returns (uint256) {
         return _swap(_outToken, _inToken, _value, msg.sender);
     }
 
-    function withdraw(address _outToken, address _inToken, uint256 _value, address _recipient)
-        public
-        nonReentrant
-        returns (uint256)
-    {
+    function withdraw(
+        address _outToken,
+        address _inToken,
+        uint256 _value,
+        address _recipient
+    ) public nonReentrant returns (uint256) {
         if (_recipient == address(0)) revert InvalidRecipient();
         return _swap(_outToken, _inToken, _value, _recipient);
     }
@@ -375,10 +440,12 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         if (netValue < _minAmountOut) revert InsufficientOutput();
     }
 
-    function _swap(address _outToken, address _inToken, uint256 _value, address _recipient)
-        private
-        returns (uint256 netValue)
-    {
+    function _swap(
+        address _outToken,
+        address _inToken,
+        uint256 _value,
+        address _recipient
+    ) private returns (uint256 netValue) {
         if (_inToken == _outToken) revert InvalidToken();
         mustAllowedToken(_outToken, tokenRegistry);
         _mustFeeDomain(_inToken, _outToken);
@@ -391,9 +458,13 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         // Check sufficient liquidity
         if (feesDecoupled) {
             uint256 bal = IERC20(_outToken).balanceOf(address(this));
-            if ((bal > fees[_outToken] ? bal - fees[_outToken] : 0) < quotedValue) revert InsufficientBalance();
+            if (
+                (bal > fees[_outToken] ? bal - fees[_outToken] : 0) <
+                quotedValue
+            ) revert InsufficientBalance();
         } else {
-            if (IERC20(_outToken).balanceOf(address(this)) < quotedValue) revert InsufficientBalance();
+            if (IERC20(_outToken).balanceOf(address(this)) < quotedValue)
+                revert InsufficientBalance();
         }
 
         // Calculate protocol fee with floor at DEFAULT_FEE_PPM (1%) of quotedValue.
@@ -402,45 +473,81 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         // The pool owner always receives their full totalFee.
         // Floor at DEFAULT_FEE_PPM (1%) of quotedValue prevents gaming via tiny pool fees.
         uint256 protocolFee = _calcProtocolFee(quotedValue, totalFee);
-        uint256 nominalNetValue = _netAfterFees(quotedValue, totalFee, protocolFee);
+        uint256 nominalNetValue = _netAfterFees(
+            quotedValue,
+            totalFee,
+            protocolFee
+        );
 
         if (protocolFee > 0) {
-            if (!IERC20(_outToken).transfer(_getProtocolRecipient(), protocolFee)) revert TransferFailed();
+            if (
+                !IERC20(_outToken).transfer(
+                    _getProtocolRecipient(),
+                    protocolFee
+                )
+            ) revert TransferFailed();
         }
-        uint256 recipientBalanceBefore = IERC20(_outToken).balanceOf(_recipient);
-        if (!IERC20(_outToken).transfer(_recipient, nominalNetValue)) revert TransferFailed();
+        uint256 recipientBalanceBefore = IERC20(_outToken).balanceOf(
+            _recipient
+        );
+        if (!IERC20(_outToken).transfer(_recipient, nominalNetValue))
+            revert TransferFailed();
         uint256 recipientBalanceAfter = IERC20(_outToken).balanceOf(_recipient);
-        netValue = recipientBalanceAfter > recipientBalanceBefore ? recipientBalanceAfter - recipientBalanceBefore : 0;
+        netValue = recipientBalanceAfter > recipientBalanceBefore
+            ? recipientBalanceAfter - recipientBalanceBefore
+            : 0;
         if (netValue == 0) revert InsufficientOutput();
 
         if (totalFee > 0 && feeAddress != address(0)) {
             fees[_outToken] += totalFee;
         }
 
-        emit Swap(msg.sender, _inToken, _outToken, received, netValue, totalFee);
+        emit Swap(
+            msg.sender,
+            _inToken,
+            _outToken,
+            received,
+            netValue,
+            totalFee
+        );
         emit SwapSettlement(
-            msg.sender, _inToken, _outToken, received, quotedValue, nominalNetValue, netValue, totalFee, protocolFee
+            msg.sender,
+            _inToken,
+            _outToken,
+            received,
+            quotedValue,
+            nominalNetValue,
+            netValue,
+            totalFee,
+            protocolFee
         );
     }
 
     function _getProtocolRecipient() internal view returns (address) {
         if (protocolFeeController == address(0)) return address(0);
-        return IProtocolFeeController(protocolFeeController).getProtocolFeeRecipient();
+        return
+            IProtocolFeeController(protocolFeeController)
+                .getProtocolFeeRecipient();
     }
 
-    function _netAfterFees(uint256 quotedValue, uint256 totalFee, uint256 protocolFee)
-        internal
-        pure
-        returns (uint256 netValue)
-    {
+    function _netAfterFees(
+        uint256 quotedValue,
+        uint256 totalFee,
+        uint256 protocolFee
+    ) internal pure returns (uint256 netValue) {
         if (totalFee + protocolFee > quotedValue) revert FeeTooHigh();
         netValue = quotedValue - totalFee - protocolFee;
         if (netValue == 0) revert InsufficientOutput();
     }
 
-    function _calcProtocolFee(uint256 quotedValue, uint256 totalFee) internal view returns (uint256) {
+    function _calcProtocolFee(
+        uint256 quotedValue,
+        uint256 totalFee
+    ) internal view returns (uint256) {
         if (protocolFeeController == address(0)) return 0;
-        IProtocolFeeController ctrl = IProtocolFeeController(protocolFeeController);
+        IProtocolFeeController ctrl = IProtocolFeeController(
+            protocolFeeController
+        );
         uint256 protocolFeePpm = ctrl.getProtocolFee();
         address recipient = ctrl.getProtocolFeeRecipient();
         if (protocolFeePpm == 0 || recipient == address(0)) return 0;
@@ -464,7 +571,10 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
         return balance;
     }
 
-    function withdraw(address _outToken, uint256 _value) public onlyOwner returns (uint256) {
+    function withdraw(
+        address _outToken,
+        uint256 _value
+    ) public onlyOwner returns (uint256) {
         if (feeAddress == address(0)) revert InvalidFeeAddress();
         if (_value > fees[_outToken]) revert InsufficientFees();
 
@@ -480,7 +590,11 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
     // Owner can withdraw all liquidity.
     // Certain use-cases may require this functionality.
     // It is recommended that the owner be a timelock or multisig or both.
-    function withdrawLiquidity(address token, address to, uint256 amount) external onlyOwner returns (uint256) {
+    function withdrawLiquidity(
+        address token,
+        address to,
+        uint256 amount
+    ) external onlyOwner returns (uint256) {
         if (to == address(0)) revert InvalidRecipient();
         uint256 balance = IERC20(token).balanceOf(address(this));
         uint256 reserved = feesDecoupled ? fees[token] : 0;
@@ -498,7 +612,9 @@ contract SwapPool is IERC20Meta, Ownable, Initializable, ReentrancyGuard {
             return;
         }
 
-        (bool r, bytes memory v) = _tokenRegistry.call(abi.encodeWithSignature("have(address)", _token));
+        (bool r, bytes memory v) = _tokenRegistry.call(
+            abi.encodeWithSignature("have(address)", _token)
+        );
         if (!r) revert RegistryCallFailed();
         bool isAllowed = abi.decode(v, (bool));
         if (!isAllowed) revert UnauthorizedToken();
