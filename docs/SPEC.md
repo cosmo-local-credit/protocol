@@ -62,13 +62,13 @@ ERC20 token with minting, optional expiry, and a writer role for delegated minti
 
 ## SwapPool
 
-Automated market maker for token swaps, with configurable fees, deposit limits, and pluggable price quoters. The pool itself is an ERC20-metadata contract (it carries a name, symbol, and decimals for LP representation) but does not mint LP tokens.
+Automated market maker for token swaps, with configurable fees, per-token credit limits, and pluggable price quoters. The pool itself is an ERC20-metadata contract (it carries a name, symbol, and decimals for LP representation) but does not mint LP tokens.
 
 **Proxy:** Yes (ERC1967)
 
 **Storage:**
 - `tokenRegistry`: optional token whitelist. When unset, any token is allowed.
-- `tokenLimiter`: optional per-token deposit cap. When unset, deposits are uncapped.
+- `tokenLimiter`: optional [Limiter](#limiter) holding the pool's credit limit for each token. When unset, the pool takes any amount of each token.
 - `quoter`: price quoter for swap math. When unset, swaps are 1:1.
 - `feeAddress`: recipient of collected pool fees.
 - `feePolicy`: contract that returns the pool fee rate. When unset, the pool fee is 0.
@@ -158,7 +158,7 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 **Validation:**
 - The token must pass the registry `have(token)` check, if `tokenRegistry` is set.
 - Both `tokenIn` and `tokenOut` must pass the registry check for a swap; de-listing therefore stops entry and exit through the trading path.
-- A deposit must not push the pool balance above the limiter cap, if `tokenLimiter` is set. Note that a limit of `0` blocks all deposits (see [Limiter](#limiter)).
+- A deposit, including the input side of a swap, must not take the pool's balance of that token above its credit limit, if `tokenLimiter` is set. The balance includes tokens transferred to the pool directly. A limit of `0` blocks all deposits (see [Limiter](#limiter)).
 - The pool must hold enough `tokenOut` to cover `quotedValue`.
 - The pool must actually receive tokens. `deposit(token, 0)` and a swap with `value == 0` revert `TransferFailed` rather than succeeding as no-ops, which is a change from earlier versions that credited the requested amount without measuring it.
 - `feeAddress` must be non-zero to collect fees.
@@ -175,7 +175,7 @@ The protocol fee is charged on top of the pool fee. Both are deducted from the u
 - `InsufficientBalance`: the pool lacks enough `tokenOut` liquidity.
 - `InsufficientFees`: accumulated fees are zero or below the requested amount.
 - `UnauthorizedToken`: the token is not whitelisted in `tokenRegistry`.
-- `LimitExceeded`: the deposit would exceed the limiter cap.
+- `LimitExceeded`: the deposit or swap input would take the pool's balance of the token above its credit limit.
 - `TransferFailed`: an ERC20 transfer returned false, or a deposit delivered nothing.
 - `RegistryCallFailed`: the registry `have()` call reverted.
 - `Sealed`: attempted to modify a sealed field.
@@ -248,13 +248,15 @@ A pair fee of `0` is treated as unset. `getFee` and `calculateFee` fall back to 
 
 ## Limiter
 
-Per-token, per-holder maximum balance caps. SwapPool enforces these on deposit.
+Per-token, per-holder credit limits: the most of a token a holder will hold. SwapPool is the holder, and it checks `balanceOf(pool) + value <= limitOf(token, pool)` on `deposit` and on the input side of every swap. Room comes back as the token is swapped out of the pool.
+
+Because the check reads the pool's balance, tokens transferred to the pool directly are not checked but still count toward the limit. Anyone can therefore fill a pool to its limit, with a deposit or a plain transfer, and block swaps of that token into the pool until some of it is swapped out.
 
 **Proxy:** Yes (ERC1967)
 
 **Key Functions:**
 - `initialize(owner)`
-- `limitOf(token, holder)`: returns the cap. A value of `0` means no cap has been set, which SwapPool treats as "block all deposits".
+- `limitOf(token, holder)`: returns the credit limit. `0`, which is also the value before any limit is set, means the pool accepts none of the token, so a token needs a limit before anyone can deposit it or swap it in.
 - `setLimitFor(token, holder, value)`: owner or writer only. `holder` must be a deployed contract.
 - `addWriter(address)` / `deleteWriter(address)`: owner only.
 - `isWriter(address)`: returns true for writers and for the owner.
